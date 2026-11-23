@@ -11,6 +11,7 @@ export interface PowerCtx {
   addCash(amount: number): void;
   repairCar(pct: number): void;
   addStyle(points: number, label?: string): void;
+  addStyleRating(ratingFraction: number, label?: string): void;
   activateStuntBoost(): void;
   showPopup(text: string, color?: string, big?: boolean): void;
   pushTrafficAround(radius: number, force: number): number;

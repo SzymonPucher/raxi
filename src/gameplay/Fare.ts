@@ -6,6 +6,7 @@ import {
   computeDeliveryRewards,
   computeParTime,
   computeRatings,
+  computeStyleTarget,
 } from './Scoring';
 
 export interface ActiveFare {
@@ -61,6 +62,13 @@ export function createActiveFare(params: {
     ruleViolations: 0,
     stopHoldTimer: 0,
   };
+}
+
+export function addFareStyleFraction(fare: ActiveFare, ratingFraction: number): number {
+  if (ratingFraction <= 0) return 0;
+  const points = ratingFraction * computeStyleTarget(fare.routeLength);
+  fare.stylePoints += points;
+  return points;
 }
 
 export function evaluateFareRatings(

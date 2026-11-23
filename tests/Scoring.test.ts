@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { createActiveFare, evaluateFareRewards } from '../src/gameplay/Fare';
+import { BALANCE } from '../src/core/config/balance';
+import { addFareStyleFraction, createActiveFare, evaluateFareRatings, evaluateFareRewards } from '../src/gameplay/Fare';
 import { PASSENGER_TYPES } from '../src/gameplay/Passenger';
 import {
   computeDeliveryRewards,
   computeParTime,
   computePickupBonus,
   computeRatings,
+  computeSpeedStyleFractionPerSec,
   gradeFromQuality,
 } from '../src/gameplay/Scoring';
 
@@ -171,5 +173,51 @@ describe('Scoring formulas (§9)', () => {
     fare.accidents += 1;
     const crashedCash = evalCash();
     expect(crashedCash).toBeLessThan(slowerCash);
+  });
+
+  it('increases style rating by ~5% per near miss and by speed formula >= 100 km/h', () => {
+    // Below 100 km/h: 0% style gain
+    expect(computeSpeedStyleFractionPerSec(0)).toBe(0);
+    expect(computeSpeedStyleFractionPerSec(80 / 3.6)).toBe(0);
+    expect(computeSpeedStyleFractionPerSec(99.9 / 3.6)).toBe(0);
+
+    // At 100 km/h: 1% per 5s (0.01 / 5 per s)
+    expect(computeSpeedStyleFractionPerSec(100 / 3.6) * 5).toBeCloseTo(0.01, 6);
+    // At 140 km/h: (0.25 * (140 - 100) + 1) = 11% per 5s
+    expect(computeSpeedStyleFractionPerSec(140 / 3.6) * 5).toBeCloseTo(0.11, 6);
+    // At 216 km/h (60 m/s): (0.25 * (216 - 100) + 1) = 30% per 5s
+    expect(computeSpeedStyleFractionPerSec(216 / 3.6) * 5).toBeCloseTo(0.3, 6);
+
+    // Verify fare styleRating increases consistently across route lengths
+    for (const routeLength of [250, 600, 1500]) {
+      const fare = createActiveFare({
+        id: `pax_${routeLength}`,
+        passenger: PASSENGER_TYPES.regular,
+        destinationName: 'Plaza',
+        destinationX: 0,
+        destinationY: 0,
+        destinationZ: routeLength,
+        tripCategory: 'medium',
+        routeLength,
+        tier: 0,
+        patienceStatMult: 1,
+      });
+
+      // Near miss => +5%
+      addFareStyleFraction(fare, BALANCE.styleNearMissRatingBonus);
+      expect(evaluateFareRatings(fare, 1, false, 0).styleRating).toBeCloseTo(0.05, 5);
+
+      // 5s at 90 km/h => +0%
+      addFareStyleFraction(fare, computeSpeedStyleFractionPerSec(90 / 3.6) * 5);
+      expect(evaluateFareRatings(fare, 1, false, 0).styleRating).toBeCloseTo(0.05, 5);
+
+      // 5s at 100 km/h => +1% (total 6%)
+      addFareStyleFraction(fare, computeSpeedStyleFractionPerSec(100 / 3.6) * 5);
+      expect(evaluateFareRatings(fare, 1, false, 0).styleRating).toBeCloseTo(0.06, 5);
+
+      // 5s at 216 km/h => +30% (total 36%)
+      addFareStyleFraction(fare, computeSpeedStyleFractionPerSec(60) * 5);
+      expect(evaluateFareRatings(fare, 1, false, 0).styleRating).toBeCloseTo(0.36, 5);
+    }
   });
 });

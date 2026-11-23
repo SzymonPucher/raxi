@@ -58,9 +58,28 @@ export interface ComputedRatings {
   grade: Grade;
 }
 
+export function computeStyleTarget(routeLength: number): number {
+  return Math.max(10, BALANCE.styleTargetPerMeter * routeLength);
+}
+
+/**
+ * Returns the style rating fraction (0..1 scale) gained per second from speed.
+ * Below 100 km/h: 0.
+ * At/above 100 km/h: percentage per 5 s is `0.25 * (velocityKmh - 100) + 1`
+ * (1% per 5 s at 100 km/h, 30% per 5 s at 216 km/h).
+ */
+export function computeSpeedStyleFractionPerSec(speedMs: number): number {
+  const velocityKmh = speedMs * 3.6;
+  if (velocityKmh < BALANCE.styleSpeedMinKmh) return 0;
+  const pctPerInterval =
+    BALANCE.styleSpeedBasePctPer5s +
+    BALANCE.styleSpeedSlopePerKmh * (velocityKmh - BALANCE.styleSpeedMinKmh);
+  return pctPerInterval / (100 * BALANCE.styleSpeedIntervalSec);
+}
+
 export function computeRatings(inp: RatingInputs): ComputedRatings {
   const speedRating = clamp((1.5 * inp.parTime - inp.actualTime) / Math.max(1, inp.parTime), 0, 1);
-  const styleTarget = Math.max(10, BALANCE.styleTargetPerMeter * inp.routeLength);
+  const styleTarget = computeStyleTarget(inp.routeLength);
   const styleRating = clamp(inp.stylePoints / styleTarget, 0, 1);
   const safetyRating = inp.daredevilCurseActive
     ? 0

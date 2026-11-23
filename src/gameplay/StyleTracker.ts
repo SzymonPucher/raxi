@@ -110,6 +110,13 @@ export class StyleTracker {
     return null;
   }
 
+  /** Add passive style points (e.g., high-speed driving) without altering combo state. */
+  addPassivePoints(points: number): void {
+    if (points <= 0) return;
+    this.totalPoints += points;
+    this.farePoints += points;
+  }
+
   /** Add discrete style event (near miss, jump landing, 360 spin, two wheels, prop smash, blinker turn). */
   addEvent(kind: string, basePoints: number, styleStatMult: number, labelPrefix: string): StyleAward {
     this.incrementCombo();

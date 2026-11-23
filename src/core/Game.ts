@@ -10,12 +10,17 @@ import { DebugPanel } from '../debug/DebugPanel';
 import { EffectsManager } from '../fx/EffectsManager';
 import {
   ActiveFare,
+  addFareStyleFraction,
   createActiveFare,
   evaluateFareRewards,
 } from '../gameplay/Fare';
 import { PassengerTypeId } from '../gameplay/Passenger';
 import { PassengerSpawner } from '../gameplay/PassengerSpawner';
-import { computePickupBonus } from '../gameplay/Scoring';
+import {
+  computePickupBonus,
+  computeSpeedStyleFractionPerSec,
+  computeStyleTarget,
+} from '../gameplay/Scoring';
 import { Shift, ShiftSummary } from '../gameplay/Shift';
 import { InputManager } from '../input/InputManager';
 import { CollisionContactEvent, PhysicsWorld } from '../physics/PhysicsWorld';
@@ -547,6 +552,27 @@ export class Game {
         for (const f of this.shift.activeFares) f.stylePoints += award.points;
         this.ui.hud.showPopup(award.label, '#00e5ff');
       },
+      addStyleRating: (ratingFraction, label) => {
+        if (ratingFraction <= 0) return;
+        const mult =
+          this.stats.get('style.mult') *
+          this.shift.difficulty.rainStyleMultiplier *
+          this.shift.style.comboMult *
+          this.shift.style.activeStuntMult;
+        let displayPts = Math.round(BALANCE.styleNearMissPoints * mult);
+        if (this.shift.activeFares.length > 0) {
+          displayPts = Math.round(
+            addFareStyleFraction(this.shift.activeFares[0], ratingFraction * mult)
+          );
+          for (let i = 1; i < this.shift.activeFares.length; i++) {
+            addFareStyleFraction(this.shift.activeFares[i], ratingFraction * mult);
+          }
+        }
+        this.shift.style.addPassivePoints(displayPts);
+        if (label) {
+          this.ui.hud.showPopup(`${label} +${displayPts}`, '#00e5ff');
+        }
+      },
       activateStuntBoost: () => this.shift.style.activateStuntBoost(),
       showPopup: (text, color, big) => this.ui.hud.showPopup(text, color, big),
       pushTrafficAround: (radius, force) => {
@@ -1016,14 +1042,38 @@ export class Game {
       this.ui.hud.showPopup(award.label, '#ffea00');
     }
 
-    // 3. Near misses
+    // 3. Near misses (+5% style rating per near miss)
     for (const nm of nearMisses) {
       this.audio.playNearMiss();
-      const award = this.shift.style.addEvent('nearMiss', BALANCE.styleNearMissPoints, styleMult, 'NEAR MISS');
-      for (const f of this.shift.activeFares) f.stylePoints += award.points;
+      const baseRefPoints =
+        this.shift.activeFares.length > 0
+          ? Math.round(
+              BALANCE.styleNearMissRatingBonus *
+                computeStyleTarget(this.shift.activeFares[0].routeLength)
+            )
+          : BALANCE.styleNearMissPoints;
+      const award = this.shift.style.addEvent('nearMiss', baseRefPoints, styleMult, 'NEAR MISS');
+      const nearMissMult = styleMult * this.shift.style.comboMult * this.shift.style.activeStuntMult;
+      for (const f of this.shift.activeFares) {
+        addFareStyleFraction(f, BALANCE.styleNearMissRatingBonus * nearMissMult);
+      }
       this.ui.hud.showPopup(award.label, '#00e5ff');
       this.events.emit('style:nearMiss', nm);
       this.powerManager.dispatch('style:nearMiss', nm, powerCtx);
+    }
+
+    // 3b. Speed-based style (>= 100 km/h: (0.25 * (v_kmh - 100) + 1)% per 5 s)
+    const speedStyleFraction = computeSpeedStyleFractionPerSec(this.vehicle.speed) * dt * styleMult;
+    if (speedStyleFraction > 0) {
+      if (this.shift.activeFares.length > 0) {
+        const pts0 = addFareStyleFraction(this.shift.activeFares[0], speedStyleFraction);
+        for (let i = 1; i < this.shift.activeFares.length; i++) {
+          addFareStyleFraction(this.shift.activeFares[i], speedStyleFraction);
+        }
+        this.shift.style.addPassivePoints(pts0);
+      } else {
+        this.shift.style.addPassivePoints(speedStyleFraction * computeStyleTarget(600));
+      }
     }
 
     // 4. Road projection: Oncoming style, Residential speeding, Traffic Rules (Grandma/Tourist)

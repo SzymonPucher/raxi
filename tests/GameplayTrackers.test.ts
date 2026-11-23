@@ -4,6 +4,7 @@ import { CarCondition } from '../src/gameplay/CarCondition';
 import { RulesTracker } from '../src/gameplay/RulesTracker';
 import { SafetyTracker } from '../src/gameplay/SafetyTracker';
 import { ShiftTimer } from '../src/gameplay/ShiftTimer';
+import { StyleTracker } from '../src/gameplay/StyleTracker';
 import { Wallet } from '../src/gameplay/Wallet';
 import { createMapDefinition } from '../src/world/mapData';
 import { RoadProjection } from '../src/world/RoadGraph';
@@ -207,5 +208,22 @@ describe('ShiftTimer, Wallet, CarCondition, BreakMode & RulesTracker', () => {
       expect(res.violations.filter((v) => v.kind === 'noBlinker')).toEqual([]);
     }
     expect(rules.checklist.blinkers).toBe(0);
+  });
+
+  it('StyleTracker.addPassivePoints records points without building or extending stunt combos', () => {
+    const style = new StyleTracker();
+    style.addPassivePoints(25);
+    expect(style.totalPoints).toBe(25);
+    expect(style.farePoints).toBe(25);
+    expect(style.comboCount).toBe(0);
+    expect(style.comboMult).toBe(1.0);
+
+    style.addEvent('nearMiss', 20, 1, 'NEAR MISS');
+    expect(style.comboCount).toBe(1);
+    style.tick(1.5);
+    style.addPassivePoints(10); // does not reset comboTimer
+    style.tick(0.6); // 2.1s > 2.0s window -> combo expires
+    expect(style.comboCount).toBe(0);
+    expect(style.totalPoints).toBe(55);
   });
 });

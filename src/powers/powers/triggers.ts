@@ -1,3 +1,4 @@
+import { BALANCE } from '../../core/config/balance';
 import { PowerDef } from '../PowerTypes';
 
 export const TRIGGER_POWERS: PowerDef[] = [
@@ -58,7 +59,7 @@ export const TRIGGER_POWERS: PowerDef[] = [
     hooks: {
       'style:nearMiss': (ctx) => {
         ctx.addTime(0.5, 'Near Miss');
-        ctx.addStyle(15, 'RUSH HERO');
+        ctx.addStyleRating(BALANCE.styleNearMissRatingBonus, 'RUSH HERO');
       },
     },
   },

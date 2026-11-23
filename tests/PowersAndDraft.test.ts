@@ -13,6 +13,7 @@ function makeMockCtx(): PowerCtx {
     addCash: vi.fn(),
     repairCar: vi.fn(),
     addStyle: vi.fn(),
+    addStyleRating: vi.fn(),
     activateStuntBoost: vi.fn(),
     showPopup: vi.fn(),
     pushTrafficAround: vi.fn(() => 3),
@@ -81,6 +82,12 @@ describe('Powers (34 total), PowerManager & Draft (§10)', () => {
     expect(act.activated).toBe(true);
     expect(ctx.pushTrafficAround).toHaveBeenCalledWith(25, 36);
     expect(ctx.addStyle).toHaveBeenCalledWith(90, 'SHOCKWAVE ×3');
+
+    // Rush Hour Hero grants +0.5s and +5% style rating on near miss
+    pm.acquire('rush_hour_hero', ctx);
+    pm.dispatch('style:nearMiss', { relSpeed: 20, distance: 0.8 }, ctx);
+    expect(ctx.addTime).toHaveBeenCalledWith(0.5, 'Near Miss');
+    expect(ctx.addStyleRating).toHaveBeenCalledWith(0.05, 'RUSH HERO');
   });
 
   it('Draft is deterministic per seed, has no duplicates, and guarantees an active on draft #1', () => {

@@ -75,8 +75,13 @@ export const BALANCE = {
   styleAirMinDuration: 0.3,
   styleCleanLandingBonus: 20,
   styleNearMissPoints: 15,
+  styleNearMissRatingBonus: 0.05, // +5% style rating per near miss
   styleNearMissRadius: 1.2, // extra clearance beyond bounding boxes
   styleNearMissRelSpeed: 15,
+  styleSpeedMinKmh: 100, // km/h threshold for speed-based style rating
+  styleSpeedBasePctPer5s: 1, // +1% per 5s at 100 km/h
+  styleSpeedSlopePerKmh: 0.25, // +0.25% per 5s per km/h above 100
+  styleSpeedIntervalSec: 5,
   styleTwoWheelsPoints: 40,
   styleBigJumpPoints: 50,
   styleSpin360Points: 80,
