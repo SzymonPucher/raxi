@@ -1149,33 +1149,130 @@ body {
   background: rgba(0, 180, 90, 0.36);
 }
 
-@media (max-width: 900px), (pointer: coarse) {
+@media (max-width: 960px), (max-height: 540px) and (pointer: coarse), (pointer: coarse) {
   .hud-top-center {
-    top: 48px;
+    top: 6px;
+    gap: 3px;
   }
+  .hud-timer-box {
+    padding: 3px 12px;
+    min-width: 96px;
+    border-width: 2px;
+    border-radius: 8px;
+  }
+  .hud-timer-label {
+    font-size: 8px;
+    letter-spacing: 0.5px;
+  }
+  .hud-timer-value {
+    font-size: 22px;
+    letter-spacing: 1px;
+  }
+  .hud-banner {
+    font-size: 10px;
+    padding: 2px 8px;
+  }
+
+  .hud-top-left {
+    top: 44px;
+    left: 10px;
+    width: 176px;
+    gap: 4px;
+  }
+  .hud-fare-card {
+    padding: 5px 8px;
+    border-width: 1px;
+    border-radius: 7px;
+  }
+  .hud-fare-dest {
+    font-size: 11px;
+  }
+  .hud-fare-sub {
+    font-size: 9px;
+  }
+  .hud-fare-ratings {
+    margin-top: 4px;
+    gap: 2px;
+    font-size: 9px;
+  }
+  .hud-fare-ratings .hud-bar-track {
+    height: 4px;
+  }
+  .hud-fare-rules {
+    font-size: 9px;
+    margin-top: 3px;
+  }
+
   .hud-top-right {
-    top: 48px;
+    top: 6px;
+    right: 10px;
+    gap: 4px;
   }
+  .hud-score-card {
+    padding: 4px 8px;
+    min-width: 112px;
+    border-width: 1px;
+    border-radius: 8px;
+  }
+  .hud-score-label {
+    font-size: 9px;
+  }
+  .hud-score-val,
+  .hud-wallet-val {
+    font-size: 13px;
+  }
+  .hud-draft-progress {
+    font-size: 9px;
+    margin-top: 2px;
+  }
+  .hud-combo-badge {
+    font-size: 9px;
+    padding: 1px 6px;
+  }
+
   .hud-controls-hint {
     display: none !important;
   }
   .hud-bottom-left {
-    bottom: 86px;
+    bottom: 84px;
     left: 10px;
   }
+  .hud-minimap-col {
+    gap: 4px;
+  }
+  .hud-location-pill {
+    padding: 3px 7px;
+    max-width: 155px;
+    border-radius: 6px;
+  }
+  .hud-location-landmark {
+    font-size: 9px;
+  }
+  .hud-location-street {
+    font-size: 10px;
+  }
   .hud-minimap-canvas {
-    width: 104px !important;
-    height: 104px !important;
+    width: 82px !important;
+    height: 82px !important;
   }
   .hud-bottom-right {
-    bottom: 132px;
+    bottom: 126px;
     right: 10px;
   }
   .hud-speedo-card {
-    padding: 6px 10px;
+    padding: 4px 8px;
+    min-width: 118px;
+    border-width: 1px;
+    border-radius: 8px;
   }
   .hud-speedo-num {
-    font-size: 24px;
+    font-size: 18px;
+  }
+  .hud-speedo-unit {
+    font-size: 9px;
+  }
+  .hud-cond-label {
+    font-size: 8px;
   }
   .hud-abilities-row {
     display: none;
