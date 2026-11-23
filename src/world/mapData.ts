@@ -1,6 +1,68 @@
 import { HeightMap } from './HeightMap';
 import { DistrictId, RoadEdge, RoadGraph, RoadNode, RoadType } from './RoadGraph';
 
+export type MapId = 'raxi_city' | 'mikolow';
+
+export type GreenZoneKind = 'park' | 'forest' | 'meadow' | 'sports' | 'cemetery' | 'lawn';
+
+export interface GreenZoneDef {
+  id: string;
+  name: string;
+  kind: GreenZoneKind;
+  polygon: Array<[number, number]>;
+  treeDensity: number;
+}
+
+export interface RailLineDef {
+  points: Array<[number, number]>;
+}
+
+export type CustomBuildingStyle =
+  | 'kamienica'
+  | 'blok'
+  | 'domek'
+  | 'brick'
+  | 'retail'
+  | 'industrial';
+
+export interface CustomBuildingDef {
+  x: number;
+  z: number;
+  w: number;
+  d: number;
+  h: number;
+  rotY?: number;
+  color: number;
+  roofColor?: number;
+  style: CustomBuildingStyle;
+}
+
+export interface MapSpawn {
+  x: number;
+  z: number;
+  yaw: number;
+}
+
+export interface LandmarkFootprintPart {
+  /** 2D polygon vertices in world (x, z) coordinates */
+  polygon: Array<[number, number]>;
+  /** Optional height override in meters (defaults to landmark.height) */
+  height?: number;
+  /** Optional facade color override (defaults to landmark.color) */
+  color?: number;
+  /** Optional roof / fascia accent color override (defaults to landmark.accentColor) */
+  accentColor?: number;
+  /** Architectural roof & parapet treatment for this extruded polygon */
+  roofStyle?: 'flat_fascia' | 'gable' | 'industrial' | 'flat';
+}
+
+export interface ParkingLotDef {
+  /** 2D polygon vertices in world (x, z) coordinates */
+  polygon: Array<[number, number]>;
+  /** Orientation angle (radians) of painted parking stall rows */
+  stallAngle?: number;
+}
+
 export interface LandmarkDef {
   id: string;
   name: string;
@@ -12,10 +74,36 @@ export interface LandmarkDef {
   height: number;
   color: number;
   accentColor: number;
-  style: 'tower' | 'station' | 'hospital' | 'stadium' | 'mall' | 'bar' | 'campus' | 'hall' | 'lighthouse' | 'lookout' | 'airfield' | 'farm' | 'quarry' | 'beach' | 'police' | 'cinema';
+  style:
+    | 'tower'
+    | 'station'
+    | 'hospital'
+    | 'stadium'
+    | 'mall'
+    | 'bar'
+    | 'campus'
+    | 'hall'
+    | 'lighthouse'
+    | 'lookout'
+    | 'airfield'
+    | 'farm'
+    | 'quarry'
+    | 'beach'
+    | 'police'
+    | 'cinema'
+    | 'basilica'
+    | 'church'
+    | 'townhall'
+    | 'train_station'
+    | 'block_estate'
+    | 'retail_center';
   /** Closest curb pickup/dropoff coordinate */
   curbX: number;
   curbZ: number;
+  /** Optional real-world polygonal building footprint(s) replacing the generic box */
+  footprintParts?: LandmarkFootprintPart[];
+  /** Optional real-world parking lot(s) draped onto terrain with painted stalls */
+  parkingLots?: ParkingLotDef[];
 }
 
 export interface GarageDef {
@@ -50,12 +138,19 @@ export interface SidewalkSpot {
 }
 
 export interface MapDefinition {
+  id?: MapId;
+  displayName?: string;
+  spawn?: MapSpawn;
   graph: RoadGraph;
   heightMap: HeightMap;
   landmarks: LandmarkDef[];
   garages: GarageDef[];
   ramps: RampDef[];
   sidewalkSpots: SidewalkSpot[];
+  greenZones?: GreenZoneDef[];
+  railLines?: RailLineDef[];
+  customBuildings?: CustomBuildingDef[];
+  disableDefaultGridBuildings?: boolean;
   parkBounds: { minX: number; maxX: number; minZ: number; maxZ: number };
   worldHalfSize: number;
   cityCoreHalfSize: number;

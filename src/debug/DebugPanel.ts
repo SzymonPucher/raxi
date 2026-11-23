@@ -50,29 +50,45 @@ export class DebugPanel {
   };
 
   constructor(
-    scene: THREE.Scene,
-    private readonly physics: PhysicsWorld,
+    private readonly scene: THREE.Scene,
+    private physics: PhysicsWorld,
     map: MapDefinition,
-    vehicleConfig: VehicleConfig,
-    actions: DebugActions
+    private readonly vehicleConfig: VehicleConfig,
+    private readonly actions: DebugActions
   ) {
     this.enabled =
       typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('debug');
     if (!this.enabled) return;
 
+    this.buildForMap(map);
+  }
+
+  public rebuildForMap(physics: PhysicsWorld, map: MapDefinition): void {
+    this.physics = physics;
+    if (!this.enabled) return;
+    this.dispose();
+    this.buildForMap(map);
+  }
+
+  private buildForMap(map: MapDefinition): void {
+    const scene = this.scene;
+    const vehicleConfig = this.vehicleConfig;
+    const actions = this.actions;
+
     // Physics wireframe debug mesh
     const physGeo = new THREE.BufferGeometry();
     const physMat = new THREE.LineBasicMaterial({ vertexColors: true });
     this.physicsLines = new THREE.LineSegments(physGeo, physMat);
-    this.physicsLines.visible = false;
+    this.physicsLines.visible = this.metrics.showPhysics;
     this.physicsLines.frustumCulled = false;
     scene.add(this.physicsLines);
 
     // RoadGraph overlay mesh
     const roadVerts: number[] = [];
     for (const e of map.graph.edges) {
-      const a = map.graph.getNode(e.from)!;
-      const b = map.graph.getNode(e.to)!;
+      const a = map.graph.getNode(e.from);
+      const b = map.graph.getNode(e.to);
+      if (!a || !b) continue;
       roadVerts.push(a.x, a.y + 1.2, a.z, b.x, b.y + 1.2, b.z);
     }
     const rGeo = new THREE.BufferGeometry();
@@ -81,10 +97,11 @@ export class DebugPanel {
       rGeo,
       new THREE.LineBasicMaterial({ color: 0x00ffaa })
     );
-    this.roadGraphLines.visible = false;
+    this.roadGraphLines.visible = this.metrics.showRoadGraph;
     scene.add(this.roadGraphLines);
 
-    const gui = new GUI({ title: 'RAXI DEBUG (?debug)' });
+    const mapTitle = map.displayName ? ` — ${map.displayName}` : '';
+    const gui = new GUI({ title: `RAXI DEBUG${mapTitle}` });
     gui.domElement.style.zIndex = '50';
     this.gui = gui;
 
@@ -137,19 +154,21 @@ export class DebugPanel {
     for (const l of map.landmarks) teleportTargets[l.name] = { x: l.curbX, z: l.curbZ };
     for (const g of map.garages) teleportTargets[`[Garage] ${g.name}`] = { x: g.x, z: g.z };
     const tpNames = Object.keys(teleportTargets);
-    this.metrics.landmarkTarget = tpNames[0];
-    cheatF.add(this.metrics, 'landmarkTarget', tpNames).name('Teleport To');
-    cheatF
-      .add(
-        {
-          fn: () => {
-            const pt = teleportTargets[this.metrics.landmarkTarget];
-            if (pt) actions.teleportTo(pt.x, map.heightMap.sample(pt.x, pt.z) + 1.5, pt.z);
+    this.metrics.landmarkTarget = tpNames[0] ?? '';
+    if (tpNames.length > 0) {
+      cheatF.add(this.metrics, 'landmarkTarget', tpNames).name('Teleport To');
+      cheatF
+        .add(
+          {
+            fn: () => {
+              const pt = teleportTargets[this.metrics.landmarkTarget];
+              if (pt) actions.teleportTo(pt.x, map.heightMap.sample(pt.x, pt.z) + 1.5, pt.z);
+            },
           },
-        },
-        'fn'
-      )
-      .name('Teleport');
+          'fn'
+        )
+        .name('Teleport');
+    }
 
     cheatF.add(this.metrics, 'tierValue', 0, 10, 1).name('Tier');
     cheatF.add({ fn: () => actions.setTier(this.metrics.tierValue) }, 'fn').name('Apply Tier');
@@ -192,5 +211,18 @@ export class DebugPanel {
 
   dispose(): void {
     this.gui?.destroy();
+    this.gui = null;
+    if (this.physicsLines) {
+      this.scene.remove(this.physicsLines);
+      this.physicsLines.geometry.dispose();
+      (this.physicsLines.material as THREE.Material).dispose();
+      this.physicsLines = null;
+    }
+    if (this.roadGraphLines) {
+      this.scene.remove(this.roadGraphLines);
+      this.roadGraphLines.geometry.dispose();
+      (this.roadGraphLines.material as THREE.Material).dispose();
+      this.roadGraphLines = null;
+    }
   }
 }

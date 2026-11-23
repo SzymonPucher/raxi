@@ -1,10 +1,19 @@
 import { WaitingPassenger } from '../../gameplay/PassengerSpawner';
 import { getTripColorHex } from '../../gameplay/Passenger';
-import { MapDefinition } from '../../world/mapData';
+import { GreenZoneKind, MapDefinition } from '../../world/mapData';
+
+const MINIMAP_GREEN_FILL: Record<GreenZoneKind, string> = {
+  forest: 'rgba(34, 96, 54, 0.56)',
+  park: 'rgba(54, 142, 70, 0.52)',
+  sports: 'rgba(62, 170, 84, 0.58)',
+  cemetery: 'rgba(46, 108, 66, 0.48)',
+  meadow: 'rgba(76, 132, 58, 0.40)',
+  lawn: 'rgba(68, 134, 70, 0.36)',
+};
 
 /**
  * Bottom-left Canvas 2D Minimap rotated with the player (§8.4).
- * Shows roads, A* route line, waiting passengers (colored dots), destinations, and garages.
+ * Shows optional green zones & railways, roads, A* route line, waiting passengers (colored dots), destinations, and garages.
  * Disabled when Lone Wolf curse (#32) is active!
  */
 export class Minimap {
@@ -70,6 +79,110 @@ export class Minimap {
       (wx - params.playerX) * scale,
       (wz - params.playerZ) * scale,
     ];
+
+    // Optional Green Zones (parks, forests, meadows, sports fields) softly under the road network
+    const greenZones = params.map.greenZones;
+    if (greenZones && greenZones.length > 0) {
+      const cullBound = half + 55;
+      for (let g = 0; g < greenZones.length; g++) {
+        const gz = greenZones[g];
+        const poly = gz.polygon;
+        if (poly.length < 3) continue;
+
+        let minX = Infinity;
+        let maxX = -Infinity;
+        let minZ = Infinity;
+        let maxZ = -Infinity;
+        for (let i = 0; i < poly.length; i++) {
+          const lx = (poly[i][0] - params.playerX) * scale;
+          const lz = (poly[i][1] - params.playerZ) * scale;
+          if (lx < minX) minX = lx;
+          if (lx > maxX) maxX = lx;
+          if (lz < minZ) minZ = lz;
+          if (lz > maxZ) maxZ = lz;
+        }
+        if (maxX < -cullBound || minX > cullBound || maxZ < -cullBound || minZ > cullBound) {
+          continue;
+        }
+
+        ctx.beginPath();
+        for (let i = 0; i < poly.length; i++) {
+          const [lx, lz] = toLocal(poly[i][0], poly[i][1]);
+          if (i === 0) ctx.moveTo(lx, lz);
+          else ctx.lineTo(lx, lz);
+        }
+        ctx.closePath();
+        ctx.fillStyle = MINIMAP_GREEN_FILL[gz.kind] ?? 'rgba(54, 142, 70, 0.48)';
+        ctx.fill();
+        if (gz.kind === 'sports') {
+          ctx.strokeStyle = 'rgba(220, 245, 225, 0.28)';
+          ctx.lineWidth = 0.8;
+          ctx.stroke();
+        }
+      }
+    }
+
+    // Optional Railway Lines (subtle dashed tracks)
+    const railLines = params.map.railLines;
+    if (railLines && railLines.length > 0) {
+      for (let r = 0; r < railLines.length; r++) {
+        const pts = railLines[r].points;
+        if (pts.length < 2) continue;
+
+        ctx.beginPath();
+        for (let i = 0; i < pts.length; i++) {
+          const [lx, lz] = toLocal(pts[i][0], pts[i][1]);
+          if (i === 0) ctx.moveTo(lx, lz);
+          else ctx.lineTo(lx, lz);
+        }
+        // Subtle dark rail bed
+        ctx.strokeStyle = 'rgba(130, 145, 160, 0.42)';
+        ctx.lineWidth = 2.2;
+        ctx.stroke();
+
+        // Crisp dashed steel sleepers/rails
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = 'rgba(215, 225, 235, 0.72)';
+        ctx.lineWidth = 1.3;
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+
+    // Optional Landmark Parking Lots & Real Building Silhouettes
+    for (const lm of params.map.landmarks) {
+      if (lm.parkingLots) {
+        for (const lot of lm.parkingLots) {
+          if (lot.polygon.length < 3) continue;
+          ctx.beginPath();
+          for (let i = 0; i < lot.polygon.length; i++) {
+            const [lx, lz] = toLocal(lot.polygon[i][0], lot.polygon[i][1]);
+            if (i === 0) ctx.moveTo(lx, lz);
+            else ctx.lineTo(lx, lz);
+          }
+          ctx.closePath();
+          ctx.fillStyle = 'rgba(72, 80, 88, 0.85)';
+          ctx.fill();
+        }
+      }
+      if (lm.footprintParts) {
+        for (const part of lm.footprintParts) {
+          if (part.polygon.length < 3) continue;
+          ctx.beginPath();
+          for (let i = 0; i < part.polygon.length; i++) {
+            const [lx, lz] = toLocal(part.polygon[i][0], part.polygon[i][1]);
+            if (i === 0) ctx.moveTo(lx, lz);
+            else ctx.lineTo(lx, lz);
+          }
+          ctx.closePath();
+          ctx.fillStyle = 'rgba(182, 168, 152, 0.88)';
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(30, 35, 42, 0.75)';
+          ctx.lineWidth = 0.8;
+          ctx.stroke();
+        }
+      }
+    }
 
     // Roads
     for (const e of params.map.graph.edges) {

@@ -1,5 +1,6 @@
 import { QualityPresetName } from '../core/config/graphics';
 import { DEFAULT_KEY_BINDINGS, KeyBindings, cloneBindings } from '../input/bindings';
+import { MapId } from '../world/MapRegistry';
 
 export interface GameSettings {
   masterVolume: number; // 0..1
@@ -11,6 +12,7 @@ export interface GameSettings {
   speedUnits: 'kmh' | 'mph';
   showControls: boolean;
   navPointNearestPassenger: boolean;
+  selectedMap: MapId;
 }
 
 export interface HighScoreEntry {
@@ -19,6 +21,7 @@ export interface HighScoreEntry {
   seed: number;
   date: string;
   timeSurvived: number;
+  mapId?: MapId;
 }
 
 export interface PersistentStats {
@@ -47,6 +50,7 @@ export const DEFAULT_SETTINGS: GameSettings = {
   speedUnits: 'kmh',
   showControls: true,
   navPointNearestPassenger: true,
+  selectedMap: 'raxi_city',
 };
 
 export function createDefaultSave(): SaveDataV1 {
@@ -86,6 +90,7 @@ export class Storage {
       if (!['low', 'medium', 'high'].includes(settings.graphicsPreset)) {
         settings.graphicsPreset = 'medium';
       }
+      settings.selectedMap = sanitizeMapId(settings.selectedMap);
       settings.masterVolume = clamp01(settings.masterVolume);
       settings.musicVolume = clamp01(settings.musicVolume);
       settings.sfxVolume = clamp01(settings.sfxVolume);
@@ -97,6 +102,10 @@ export class Storage {
               (h): h is HighScoreEntry =>
                 Boolean(h) && typeof h.score === 'number' && Number.isFinite(h.score)
             )
+            .map((h) => ({
+              ...h,
+              ...(h.mapId !== undefined ? { mapId: sanitizeMapId(h.mapId) } : {}),
+            }))
             .slice(0, 10)
         : [];
 
@@ -168,6 +177,7 @@ export class Storage {
       seed: entry.seed,
       timeSurvived: Math.round(entry.timeSurvived),
       date: new Date().toISOString().slice(0, 10),
+      ...(entry.mapId ? { mapId: sanitizeMapId(entry.mapId) } : {}),
     };
 
     this.data.highScores.push(fullEntry);
@@ -184,4 +194,8 @@ function clamp01(v: unknown): number {
   const n = Number(v);
   if (!Number.isFinite(n)) return 0.8;
   return Math.max(0, Math.min(1, n));
+}
+
+function sanitizeMapId(v: unknown): MapId {
+  return v === 'mikolow' ? 'mikolow' : 'raxi_city';
 }
