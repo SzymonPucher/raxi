@@ -386,17 +386,139 @@ export function buildVectorRoads(map: MapDefinition): THREE.Group {
   const rynekX = townhall ? townhall.x + 22 : 0;
   const rynekZ = townhall ? townhall.z - 25 : 0;
 
-  // Precompute max intersecting road half-width at each node for accurate sidewalk trimming on Mikołów
-  const nodeMaxHalfW = new Map<string, number>();
+  // Precompute per-node arms, classifications, and per-edge trim distances
+  interface NodeArm {
+    edge: (typeof map.graph.edges)[number];
+    ux: number;
+    uz: number;
+    angle: number;
+    halfW: number;
+    curbW: number;
+    totalHalf: number;
+    edgeLen: number;
+    trim: number;
+  }
+
+  const nodeArms = new Map<string, NodeArm[]>();
+  const edgeTrims = new Map<string, { startTrim: number; endTrim: number }>();
+
+  for (const e of map.graph.edges) {
+    edgeTrims.set(e.id, { startTrim: 0, endTrim: 0 });
+  }
+
   for (const node of map.graph.nodes.values()) {
     const adj = map.graph.adjacency.get(node.id) ?? [];
-    let maxHalfW = 0;
-    for (const a of adj) {
-      if (!a.edge.isShortcut) {
-        maxHalfW = Math.max(maxHalfW, a.edge.width * 0.5);
+    const seenEdges = new Set<string>();
+    const arms: NodeArm[] = [];
+
+    // Collect all incident non-shortcut, non-roundabout edges (both directions)
+    for (const e of map.graph.edges) {
+      if (e.isShortcut || e.isRoundabout) continue;
+      if (e.from !== node.id && e.to !== node.id) continue;
+      if (seenEdges.has(e.id)) continue;
+      seenEdges.add(e.id);
+
+      const otherId = e.from === node.id ? e.to : e.from;
+      const other = map.graph.getNode(otherId);
+      if (!other) continue;
+      const dx = other.x - node.x;
+      const dz = other.z - node.z;
+      const len = Math.hypot(dx, dz);
+      if (len < 0.5) continue;
+
+      const ux = dx / len;
+      const uz = dz / len;
+      const halfW = e.width * 0.5;
+      const curbW =
+        e.sidewalkWidth !== undefined
+          ? Math.max(0, e.sidewalkWidth)
+          : e.roadType === 'country'
+            ? 0.65
+            : 1.55;
+      arms.push({
+        edge: e,
+        ux,
+        uz,
+        angle: Math.atan2(uz, ux),
+        halfW,
+        curbW,
+        totalHalf: halfW + curbW,
+        edgeLen: len,
+        trim: 0,
+      });
+    }
+
+    // Keep unused adj reference silent if needed
+    void adj;
+
+    arms.sort((a, b) => a.angle - b.angle);
+    nodeArms.set(node.id, arms);
+
+    if (arms.length >= 3) {
+      const maxHalfW = Math.max(...arms.map((a) => a.halfW));
+      const fillet = isMikolow ? 3.0 : 3.6;
+
+      for (let i = 0; i < arms.length; i++) {
+        const cur = arms[i];
+        const prev = arms[(i - 1 + arms.length) % arms.length];
+        const next = arms[(i + 1) % arms.length];
+
+        let d = maxHalfW + 1.2;
+        for (const nb of [prev, next]) {
+          let dTheta = Math.abs(nb.angle - cur.angle);
+          if (dTheta > Math.PI) dTheta = Math.PI * 2 - dTheta;
+          if (dTheta > 0.25 && dTheta < Math.PI - 0.15) {
+            const sinT = Math.sin(dTheta);
+            const cosT = Math.cos(dTheta);
+            const cornerDist = (nb.halfW + cur.halfW * cosT) / sinT;
+            d = Math.max(d, cornerDist + fillet * 0.45);
+          }
+        }
+
+        const trim = Math.min(cur.edgeLen * 0.36, Math.max(maxHalfW + 1.1, Math.min(maxHalfW * 2.35, d)));
+        cur.trim = trim;
+        const et = edgeTrims.get(cur.edge.id)!;
+        if (cur.edge.from === node.id) et.startTrim = trim;
+        else et.endTrim = trim;
       }
     }
-    nodeMaxHalfW.set(node.id, maxHalfW);
+  }
+
+  // Group roundabout edges by roundaboutId and precompute roundabout outer trim for approach arms
+  const roundabouts = new Map<string, Array<(typeof map.graph.edges)[number]>>();
+  for (const e of map.graph.edges) {
+    if (e.isRoundabout && e.roundaboutId) {
+      let list = roundabouts.get(e.roundaboutId);
+      if (!list) {
+        list = [];
+        roundabouts.set(e.roundaboutId, list);
+      }
+      list.push(e);
+    }
+  }
+
+  const roundaboutNodeIds = new Set<string>();
+  for (const rbEdges of roundabouts.values()) {
+    const rbNodeSet = new Set<string>();
+    let sumW = 0;
+    for (const e of rbEdges) {
+      rbNodeSet.add(e.from);
+      rbNodeSet.add(e.to);
+      sumW += e.width;
+    }
+    const avgRingW = sumW / Math.max(1, rbEdges.length);
+    const halfRing = avgRingW * 0.5;
+    for (const nid of rbNodeSet) {
+      roundaboutNodeIds.add(nid);
+      const arms = nodeArms.get(nid) ?? [];
+      for (const arm of arms) {
+        const trim = Math.min(arm.edgeLen * 0.36, halfRing + 0.6);
+        arm.trim = trim;
+        const et = edgeTrims.get(arm.edge.id)!;
+        if (arm.edge.from === nid) et.startTrim = trim;
+        else et.endTrim = trim;
+      }
+    }
   }
 
   // --- 1. Main Vector Roads (1 merged BufferGeometry = 1 draw call!) ---
@@ -407,7 +529,7 @@ export function buildVectorRoads(map: MapDefinition): THREE.Group {
   const indices: number[] = [];
 
   for (const e of map.graph.edges) {
-    if (e.isShortcut) continue;
+    if (e.isShortcut || e.isRoundabout) continue;
     const a = map.graph.getNode(e.from)!;
     const b = map.graph.getNode(e.to)!;
     const dx = b.x - a.x;
@@ -429,9 +551,12 @@ export function buildVectorRoads(map: MapDefinition): THREE.Group {
           : 1.55;
     const totalHalf = halfW + curbW;
 
-    // Detect whether this road sits on flat ground or rolling hills:
-    // Raxi City's core (±650) is flat and stays ultra-light (1 segment x 2 cols);
-    // Mikołów and any sloped segment subdivide cleanly every ~8m so roads hug every hill!
+    const et = edgeTrims.get(e.id)!;
+    const startTrim = Math.min(len * 0.42, et.startTrim);
+    const endTrim = Math.min(len * 0.42, et.endTrim);
+    const trimmedLen = len - startTrim - endTrim;
+    if (trimmedLen < 0.5) continue;
+
     let isFlat = false;
     if (!isMikolow) {
       isFlat =
@@ -443,7 +568,7 @@ export function buildVectorRoads(map: MapDefinition): THREE.Group {
       let minH = Infinity;
       let maxH = -Infinity;
       for (let k = 0; k <= 4; k++) {
-        const t = k / 4;
+        const t = (startTrim + trimmedLen * (k / 4)) / len;
         const cx = a.x + dx * t;
         const cz = a.z + dz * t;
         const hC = hm.sample(cx, cz);
@@ -462,26 +587,15 @@ export function buildVectorRoads(map: MapDefinition): THREE.Group {
         : [-totalHalf, 0, totalHalf];
     const cols = latOffsets.length;
     const stepLen = isMikolow ? 8.0 : 10.0;
-    const steps = isFlat ? 1 : Math.max(2, Math.ceil(len / stepLen));
+    const steps = isFlat ? 1 : Math.max(2, Math.ceil(trimmedLen / stepLen));
     const baseVertex = positions.length / 3;
     const startLight = a.hasTrafficLight ? 1 : 0;
     const endLight = b.hasTrafficLight ? 1 : 0;
 
-    // Sidewalk trim distances & visual style code
-    let startTrim: number;
-    let endTrim: number;
     let styleCode: number;
     if (!isMikolow) {
-      const raxiTrim = e.width > 14.0 ? 9.2 : 8.2;
-      startTrim = raxiTrim;
-      endTrim = raxiTrim;
       styleCode = 0.0;
     } else {
-      const maxA = nodeMaxHalfW.get(e.from) ?? halfW;
-      const maxB = nodeMaxHalfW.get(e.to) ?? halfW;
-      startTrim = Math.min(len * 0.35, Math.max(3.5, maxA + 0.55));
-      endTrim = Math.min(len * 0.35, Math.max(3.5, maxB + 0.55));
-
       const midX = (a.x + b.x) * 0.5;
       const midZ = (a.z + b.z) * 0.5;
       const nearRynek =
@@ -496,10 +610,15 @@ export function buildVectorRoads(map: MapDefinition): THREE.Group {
       }
     }
 
+    // Curb trim in shader: for trimmed intersections, geometry already starts/ends at startTrim/endTrim;
+    // pass startTrim/endTrim so crosswalks and lane markings align cleanly with the intersection mouth.
+    const shaderStartTrim = !isMikolow ? (e.width > 14.0 ? 9.2 : 8.2) : startTrim;
+    const shaderEndTrim = !isMikolow ? (e.width > 14.0 ? 9.2 : 8.2) : endTrim;
+
     for (let s = 0; s <= steps; s++) {
-      const t = s / steps;
-      const distStart = t * len;
-      const distEnd = (1 - t) * len;
+      const distStart = startTrim + trimmedLen * (s / steps);
+      const distEnd = len - distStart;
+      const t = distStart / len;
       const cx = a.x + dx * t;
       const cz = a.z + dz * t;
 
@@ -512,11 +631,10 @@ export function buildVectorRoads(map: MapDefinition): THREE.Group {
         positions.push(vx, vy, vz);
         roadData.push(lat, distStart, distEnd, e.width);
         roadFlags.push(e.lanesPerDir, startLight, endLight);
-        roadStyle.push(curbW, startTrim, endTrim, styleCode);
+        roadStyle.push(curbW, shaderStartTrim, shaderEndTrim, styleCode);
       }
     }
 
-    // Build CCW upward-facing triangles (+Y normal)
     for (let s = 0; s < steps; s++) {
       for (let c = 0; c < cols - 1; c++) {
         const i00 = baseVertex + s * cols + c;
@@ -525,6 +643,135 @@ export function buildVectorRoads(map: MapDefinition): THREE.Group {
         const i11 = baseVertex + (s + 1) * cols + (c + 1);
         indices.push(i00, i01, i11, i00, i11, i10);
       }
+    }
+  }
+
+  // --- 1b. Predefined Roundabout Asphalt Rings (added to roadMesh for unified vector markings!) ---
+  const islandPos: number[] = [];
+  const islandCol: number[] = [];
+  const islandIdx: number[] = [];
+
+  for (const rbEdges of roundabouts.values()) {
+    const rbNodeSet = new Set<string>();
+    let sumW = 0;
+    for (const e of rbEdges) {
+      rbNodeSet.add(e.from);
+      rbNodeSet.add(e.to);
+      sumW += e.width;
+    }
+    const center = rbEdges[0].roundaboutCenter;
+    const rbNodes = Array.from(rbNodeSet)
+      .map((id) => map.graph.getNode(id)!)
+      .filter(Boolean);
+    if (rbNodes.length < 3) continue;
+
+    const cx = center ? center.x : rbNodes.reduce((s, n) => s + n.x, 0) / rbNodes.length;
+    const cz = center ? center.z : rbNodes.reduce((s, n) => s + n.z, 0) / rbNodes.length;
+
+    const nodePolar = rbNodes
+      .map((n) => ({
+        ang: Math.atan2(n.z - cz, n.x - cx),
+        rad: Math.hypot(n.x - cx, n.z - cz),
+      }))
+      .sort((a, b) => a.ang - b.ang);
+
+    const sampleRadiusAtAngle = (ang: number): number => {
+      if (nodePolar.length === 0) return center?.radius ?? 12;
+      let a = ang;
+      while (a < nodePolar[0].ang) a += Math.PI * 2;
+      while (a >= nodePolar[0].ang + Math.PI * 2) a -= Math.PI * 2;
+      for (let i = 0; i < nodePolar.length; i++) {
+        const p0 = nodePolar[i];
+        const p1 = nodePolar[(i + 1) % nodePolar.length];
+        const a0 = p0.ang;
+        const a1 = i + 1 < nodePolar.length ? p1.ang : p1.ang + Math.PI * 2;
+        if (a >= a0 && a <= a1) {
+          const t = (a - a0) / Math.max(0.0001, a1 - a0);
+          return p0.rad + (p1.rad - p0.rad) * t;
+        }
+      }
+      return nodePolar[0].rad;
+    };
+
+    const ringW = Math.max(7.0, sumW / rbEdges.length);
+    const halfRing = ringW * 0.5;
+    const segs = 48;
+    const baseV = positions.length / 3;
+    const avgR = nodePolar.reduce((s, p) => s + p.rad, 0) / nodePolar.length;
+    const totalCirc = Math.PI * 2 * avgR;
+
+    for (let s = 0; s <= segs; s++) {
+      const u = s / segs;
+      const ang = -Math.PI + u * Math.PI * 2;
+      const cosA = Math.cos(ang);
+      const sinA = Math.sin(ang);
+      const rMid = sampleRadiusAtAngle(ang);
+      const distAlong = u * totalCirc;
+
+      for (const lat of [-halfRing, 0, halfRing]) {
+        const r = Math.max(1.2, rMid + lat);
+        const vx = cx + cosA * r;
+        const vz = cz + sinA * r;
+        const vy = hm.sample(vx, vz) + visualLift;
+        positions.push(vx, vy, vz);
+        roadData.push(lat, distAlong, totalCirc - distAlong, ringW);
+        roadFlags.push(1, 0, 0);
+        roadStyle.push(0, 0, 0, isMikolow ? 1.0 : 0.0);
+      }
+    }
+
+    for (let s = 0; s < segs; s++) {
+      for (let c = 0; c < 2; c++) {
+        const i00 = baseV + s * 3 + c;
+        const i01 = baseV + s * 3 + (c + 1);
+        const i10 = baseV + (s + 1) * 3 + c;
+        const i11 = baseV + (s + 1) * 3 + (c + 1);
+        indices.push(i00, i11, i01, i00, i10, i11);
+      }
+    }
+
+    // Central island: outer granite curb + brick/cobble apron + lush green lawn center
+    const islandCenterIdx = islandPos.length / 3;
+    islandPos.push(cx, hm.sample(cx, cz) + visualLift + 0.09, cz);
+    islandCol.push(0.28, 0.49, 0.23);
+
+    const ringStartIdx = islandPos.length / 3;
+    for (let s = 0; s < segs; s++) {
+      const ang = -Math.PI + (s / segs) * Math.PI * 2;
+      const cosA = Math.cos(ang);
+      const sinA = Math.sin(ang);
+      const rIn = Math.max(1.5, sampleRadiusAtAngle(ang) - halfRing);
+      const rApron = Math.max(0.9, rIn - Math.min(1.5, rIn * 0.28));
+      const rGrass = Math.max(0.5, rApron - 0.35);
+
+      // 0: grass edge
+      const gx = cx + cosA * rGrass;
+      const gz = cz + sinA * rGrass;
+      islandPos.push(gx, hm.sample(gx, gz) + visualLift + 0.08, gz);
+      islandCol.push(0.32, 0.54, 0.26);
+
+      // 1: curb inner / apron inner
+      const ax = cx + cosA * rApron;
+      const az = cz + sinA * rApron;
+      islandPos.push(ax, hm.sample(ax, az) + visualLift + 0.05, az);
+      islandCol.push(0.52, 0.48, 0.44);
+
+      // 2: apron outer (meets asphalt inner edge)
+      const ox = cx + cosA * rIn;
+      const oz = cz + sinA * rIn;
+      islandPos.push(ox, hm.sample(ox, oz) + visualLift + 0.02, oz);
+      islandCol.push(0.38, 0.39, 0.41);
+    }
+
+    for (let s = 0; s < segs; s++) {
+      const next = (s + 1) % segs;
+      const c0 = ringStartIdx + s * 3;
+      const n0 = ringStartIdx + next * 3;
+      // Grass fan (+Y normal)
+      islandIdx.push(islandCenterIdx, n0, c0);
+      // Apron ring (+Y normal)
+      islandIdx.push(c0, n0, n0 + 1, c0, n0 + 1, c0 + 1);
+      islandIdx.push(c0 + 1, n0 + 1, n0 + 2, c0 + 1, n0 + 2, c0 + 2);
     }
   }
 
@@ -540,30 +787,195 @@ export function buildVectorRoads(map: MapDefinition): THREE.Group {
   roadMesh.receiveShadow = true;
   group.add(roadMesh);
 
-  // --- 2. Conforming Intersection Asphalt Pads (1 draw call!) ---
+  if (islandPos.length > 0) {
+    const islandGeo = new THREE.BufferGeometry();
+    islandGeo.setAttribute('position', new THREE.Float32BufferAttribute(islandPos, 3));
+    islandGeo.setAttribute('color', new THREE.Float32BufferAttribute(islandCol, 3));
+    islandGeo.setIndex(islandIdx);
+    islandGeo.computeVertexNormals();
+    const islandMat = new THREE.MeshLambertMaterial({
+      vertexColors: true,
+      polygonOffset: true,
+      polygonOffsetFactor: -3,
+      polygonOffsetUnits: -3,
+    });
+    const islandMesh = new THREE.Mesh(islandGeo, islandMat);
+    islandMesh.receiveShadow = true;
+    group.add(islandMesh);
+  }
+
+  // --- 2. Predefined Intersection Elements (Asphalt Junctions, Curb Fillets, Bend Wedges, Cul-de-sacs) ---
   const hubPos: number[] = [];
   const hubIdx: number[] = [];
-  const hubSegs = 12;
+  const filletPos: number[] = [];
+  const filletIdx: number[] = [];
 
   for (const node of map.graph.nodes.values()) {
-    const maxHalfW = nodeMaxHalfW.get(node.id) ?? 0;
-    if (maxHalfW <= 0) continue;
+    if (roundaboutNodeIds.has(node.id)) continue;
+    const arms = nodeArms.get(node.id) ?? [];
+    if (arms.length === 0) continue;
 
-    const rad = maxHalfW + 0.3;
-    const centerIdx = hubPos.length / 3;
-    hubPos.push(node.x, hm.sample(node.x, node.z) + visualLift - 0.008, node.z);
+    if (arms.length === 1) {
+      // Predefined Dead-End / Cul-de-sac Cap
+      const arm = arms[0];
+      const hw = arm.halfW;
+      const tw = arm.totalHalf;
+      const segs = 10;
+      const cIdx = hubPos.length / 3;
+      hubPos.push(node.x, hm.sample(node.x, node.z) + visualLift - 0.002, node.z);
+      const startAng = arm.angle + Math.PI * 0.5;
+      for (let k = 0; k <= segs; k++) {
+        const ang = startAng + (k / segs) * Math.PI;
+        const cosA = Math.cos(ang);
+        const sinA = Math.sin(ang);
+        const vx = node.x + cosA * hw;
+        const vz = node.z + sinA * hw;
+        hubPos.push(vx, hm.sample(vx, vz) + visualLift - 0.002, vz);
+      }
+      for (let k = 0; k < segs; k++) {
+        hubIdx.push(cIdx, cIdx + 1 + k + 1, cIdx + 1 + k);
+      }
 
-    for (let k = 0; k < hubSegs; k++) {
-      const ang = (k / hubSegs) * Math.PI * 2;
-      const vx = node.x + Math.cos(ang) * rad;
-      const vz = node.z + Math.sin(ang) * rad;
-      hubPos.push(vx, hm.sample(vx, vz) + visualLift - 0.008, vz);
-    }
+      if (tw > hw + 0.1) {
+        const fBase = filletPos.length / 3;
+        for (let k = 0; k <= segs; k++) {
+          const ang = startAng + (k / segs) * Math.PI;
+          const cosA = Math.cos(ang);
+          const sinA = Math.sin(ang);
+          const ix = node.x + cosA * hw;
+          const iz = node.z + sinA * hw;
+          const ox = node.x + cosA * tw;
+          const oz = node.z + sinA * tw;
+          filletPos.push(ix, hm.sample(ix, iz) + visualLift - 0.003, iz);
+          filletPos.push(ox, hm.sample(ox, oz) + visualLift - 0.003, oz);
+        }
+        for (let k = 0; k < segs; k++) {
+          const i0 = fBase + k * 2;
+          const i1 = fBase + (k + 1) * 2;
+          filletIdx.push(i0, i1, i1 + 1, i0, i1 + 1, i0 + 1);
+        }
+      }
+    } else if (arms.length === 2) {
+      // Predefined Smooth Bend Joint (fills outer wedge without breaking sidewalks!)
+      const maxHW = Math.max(arms[0].halfW, arms[1].halfW);
+      const maxTW = Math.max(arms[0].totalHalf, arms[1].totalHalf);
+      const rad = maxHW + 0.15;
+      const segs = 12;
+      const cIdx = hubPos.length / 3;
+      hubPos.push(node.x, hm.sample(node.x, node.z) + visualLift - 0.004, node.z);
+      for (let k = 0; k < segs; k++) {
+        const ang = (k / segs) * Math.PI * 2;
+        const vx = node.x + Math.cos(ang) * rad;
+        const vz = node.z + Math.sin(ang) * rad;
+        hubPos.push(vx, hm.sample(vx, vz) + visualLift - 0.004, vz);
+      }
+      for (let k = 0; k < segs; k++) {
+        const next = (k + 1) % segs;
+        hubIdx.push(cIdx, cIdx + 1 + next, cIdx + 1 + k);
+      }
 
-    for (let k = 0; k < hubSegs; k++) {
-      const next = (k + 1) % hubSegs;
-      // CCW upward (+Y): center -> next -> cur
-      hubIdx.push(centerIdx, centerIdx + 1 + next, centerIdx + 1 + k);
+      if (maxTW > maxHW + 0.1) {
+        const fBase = filletPos.length / 3;
+        for (let k = 0; k < segs; k++) {
+          const ang = (k / segs) * Math.PI * 2;
+          const cosA = Math.cos(ang);
+          const sinA = Math.sin(ang);
+          const ix = node.x + cosA * maxHW;
+          const iz = node.z + sinA * maxHW;
+          const ox = node.x + cosA * maxTW;
+          const oz = node.z + sinA * maxTW;
+          filletPos.push(ix, hm.sample(ix, iz) + visualLift - 0.006, iz);
+          filletPos.push(ox, hm.sample(ox, oz) + visualLift - 0.006, oz);
+        }
+        for (let k = 0; k < segs; k++) {
+          const next = (k + 1) % segs;
+          const i0 = fBase + k * 2;
+          const i1 = fBase + next * 2;
+          filletIdx.push(i0, i1, i1 + 1, i0, i1 + 1, i0 + 1);
+        }
+      }
+    } else {
+      // Predefined 3+ Way Intersection Polygon with Smooth Bezier Curb Fillets!
+      const boundaryAsphalt: Array<[number, number]> = [];
+      const cornerSteps = 5;
+
+      for (let i = 0; i < arms.length; i++) {
+        const a0 = arms[i];
+        const a1 = arms[(i + 1) % arms.length];
+
+        // Right vector of arm i (in XZ, +90° in atan2): (-uz, ux)
+        const r0x = -a0.uz;
+        const r0z = a0.ux;
+        const r1x = -a1.uz;
+        const r1z = a1.ux;
+
+        // Arm i mouth: Left corner -> Right corner
+        const p0Lx = node.x + a0.ux * a0.trim - r0x * a0.halfW;
+        const p0Lz = node.z + a0.uz * a0.trim - r0z * a0.halfW;
+        const p0Rx = node.x + a0.ux * a0.trim + r0x * a0.halfW;
+        const p0Rz = node.z + a0.uz * a0.trim + r0z * a0.halfW;
+
+        // Next arm mouth Left corner
+        const p1Lx = node.x + a1.ux * a1.trim - r1x * a1.halfW;
+        const p1Lz = node.z + a1.uz * a1.trim - r1z * a1.halfW;
+
+        boundaryAsphalt.push([p0Lx, p0Lz]);
+        boundaryAsphalt.push([p0Rx, p0Rz]);
+
+        // Smooth Bezier fillet from p0R to p1L
+        const midCornerX = (p0Rx + p1Lx) * 0.5;
+        const midCornerZ = (p0Rz + p1Lz) * 0.5;
+        // Pull control point slightly toward node center for concave curb return
+        const ctrlX = node.x + (midCornerX - node.x) * 0.65;
+        const ctrlZ = node.z + (midCornerZ - node.z) * 0.65;
+
+        const filletAvgCurb = (a0.curbW + a1.curbW) * 0.5;
+        const fBase = filletPos.length / 3;
+        const hasCurb = filletAvgCurb > 0.15;
+
+        for (let s = 0; s <= cornerSteps; s++) {
+          const u = s / cornerSteps;
+          const omt = 1 - u;
+          const bx = omt * omt * p0Rx + 2 * omt * u * ctrlX + u * u * p1Lx;
+          const bz = omt * omt * p0Rz + 2 * omt * u * ctrlZ + u * u * p1Lz;
+          if (s > 0 && s < cornerSteps) {
+            boundaryAsphalt.push([bx, bz]);
+          }
+
+          if (hasCurb) {
+            // Tangent along curve -> outward normal points away from intersection
+            const tx = 2 * omt * (ctrlX - p0Rx) + 2 * u * (p1Lx - ctrlX);
+            const tz = 2 * omt * (ctrlZ - p0Rz) + 2 * u * (p1Lz - ctrlZ);
+            const tLen = Math.max(0.001, Math.hypot(tx, tz));
+            const outX = -tz / tLen;
+            const outZ = tx / tLen;
+            const curbAtU = a0.curbW + (a1.curbW - a0.curbW) * u;
+            const ox = bx + outX * curbAtU;
+            const oz = bz + outZ * curbAtU;
+            filletPos.push(bx, hm.sample(bx, bz) + visualLift - 0.001, bz);
+            filletPos.push(ox, hm.sample(ox, oz) + visualLift - 0.001, oz);
+          }
+        }
+
+        if (hasCurb) {
+          for (let s = 0; s < cornerSteps; s++) {
+            const i0 = fBase + s * 2;
+            const i1 = fBase + (s + 1) * 2;
+            filletIdx.push(i0, i1, i1 + 1, i0, i1 + 1, i0 + 1);
+          }
+        }
+      }
+
+      const cIdx = hubPos.length / 3;
+      hubPos.push(node.x, hm.sample(node.x, node.z) + visualLift - 0.001, node.z);
+      for (const [bx, bz] of boundaryAsphalt) {
+        hubPos.push(bx, hm.sample(bx, bz) + visualLift - 0.001, bz);
+      }
+      const nPts = boundaryAsphalt.length;
+      for (let k = 0; k < nPts; k++) {
+        const next = (k + 1) % nPts;
+        hubIdx.push(cIdx, cIdx + 1 + next, cIdx + 1 + k);
+      }
     }
   }
 
@@ -573,14 +985,30 @@ export function buildVectorRoads(map: MapDefinition): THREE.Group {
     hubGeo.setIndex(hubIdx);
     hubGeo.computeVertexNormals();
     const hubMat = new THREE.MeshLambertMaterial({
-      color: 0x33373d,
+      color: 0x32363b,
       polygonOffset: true,
-      polygonOffsetFactor: -1,
-      polygonOffsetUnits: -1,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
     });
     const hubMesh = new THREE.Mesh(hubGeo, hubMat);
     hubMesh.receiveShadow = true;
     group.add(hubMesh);
+  }
+
+  if (filletPos.length > 0) {
+    const filletGeo = new THREE.BufferGeometry();
+    filletGeo.setAttribute('position', new THREE.Float32BufferAttribute(filletPos, 3));
+    filletGeo.setIndex(filletIdx);
+    filletGeo.computeVertexNormals();
+    const filletMat = new THREE.MeshLambertMaterial({
+      color: isMikolow ? 0xa5a7ab : 0x9ea3aa,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+    });
+    const filletMesh = new THREE.Mesh(filletGeo, filletMat);
+    filletMesh.receiveShadow = true;
+    group.add(filletMesh);
   }
 
   // --- 3. Conforming Gravel Shortcut Paths (1 draw call!) ---

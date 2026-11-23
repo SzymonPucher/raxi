@@ -1,18 +1,21 @@
 import { InputDevice, InputState, createEmptyInputState } from './Actions';
 import { GamepadDevice } from './GamepadDevice';
 import { KeyboardDevice } from './KeyboardDevice';
+import { TouchDevice } from './TouchDevice';
 import { KeyBindings } from './bindings';
 
 export class InputManager {
   public readonly keyboard: KeyboardDevice;
   public readonly gamepad: GamepadDevice;
+  public readonly touch: TouchDevice;
   private readonly devices: InputDevice[];
   private current: InputState = createEmptyInputState();
 
   constructor(bindings?: KeyBindings) {
     this.keyboard = new KeyboardDevice(bindings);
     this.gamepad = new GamepadDevice();
-    this.devices = [this.keyboard, this.gamepad];
+    this.touch = new TouchDevice();
+    this.devices = [this.keyboard, this.gamepad, this.touch];
   }
 
   update(dt: number): InputState {
@@ -37,6 +40,8 @@ export class InputManager {
       merged.indicatorRight = merged.indicatorRight || Boolean(partial.indicatorRight);
       merged.shopBreak = merged.shopBreak || Boolean(partial.shopBreak);
       merged.lookBack = merged.lookBack || Boolean(partial.lookBack);
+      merged.cameraLeft = merged.cameraLeft || Boolean(partial.cameraLeft);
+      merged.cameraRight = merged.cameraRight || Boolean(partial.cameraRight);
       merged.resetCar = merged.resetCar || Boolean(partial.resetCar);
       merged.pause = merged.pause || Boolean(partial.pause);
       merged.uiUp = merged.uiUp || Boolean(partial.uiUp);

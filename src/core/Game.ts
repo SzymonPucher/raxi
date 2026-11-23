@@ -448,10 +448,15 @@ export class Game {
     if (drivingHud) {
       this.ui.hideScreen();
       this.ui.hud.setVisible(true);
+      this.input.touch.setVisible(true);
     } else if (next === 'Paused') {
+      this.input.touch.setVisible(false);
       this.ui.showPause();
     } else if (next === 'MainMenu') {
+      this.input.touch.setVisible(false);
       this.ui.showMainMenu(this.storage.stats, this.activeMapId);
+    } else {
+      this.input.touch.setVisible(false);
     }
 
     // Music state
@@ -1773,7 +1778,16 @@ export class Game {
         this.camera.lookAt(20, 28, 45);
       }
     } else {
-      this.chaseCam.update(this.vehicle, inWorld ? alpha : 1, realDt, this.input.state.lookBack);
+      const inp = this.input.state;
+      this.chaseCam.update(
+        this.vehicle,
+        inWorld ? alpha : 1,
+        realDt,
+        inp.lookBack,
+        inp.cameraLeft,
+        inp.cameraRight,
+        inp.throttle > 0.1 || inp.brake > 0.1
+      );
     }
 
     // Shadow map follows player (§6.3) or scenic focal point on Main Menu

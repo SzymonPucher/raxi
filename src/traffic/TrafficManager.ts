@@ -13,8 +13,8 @@ export interface NearMissHit {
   distance: number;
 }
 
-function getTurnMargin(edgeLength: number): number {
-  return Math.min(10.5, edgeLength * 0.28);
+function getTurnMargin(edgeLength: number, isRoundabout = false): number {
+  return isRoundabout ? Math.min(2.8, edgeLength * 0.22) : Math.min(10.5, edgeLength * 0.28);
 }
 
 function sampleBezier(
@@ -266,11 +266,43 @@ export class TrafficManager {
         dirZ = dz / len;
 
         desiredSpeed = curEdge.speedLimit * 0.85;
-        const turnMargin = getTurnMargin(len);
+        const turnMargin = getTurnMargin(len, curEdge.isRoundabout);
         const distToStopLine = len - turnMargin - c.progress;
 
-        // Stop neatly BEFORE the intersection stop line on a red light
+        // Yield to circulating traffic when entering a roundabout
+        if (!curEdge.isRoundabout && distToStopLine > -1.0 && distToStopLine < 11.0) {
+          const toAdj = this.map.graph.adjacency.get(toN.id) ?? [];
+          const rbEdge = toAdj.find((a) => a.edge.isRoundabout);
+          if (rbEdge?.edge.roundaboutId) {
+            const rbId = rbEdge.edge.roundaboutId;
+            let mustYield = false;
+            for (let j = 0; j < this.cars.length; j++) {
+              if (i === j) continue;
+              const o = this.cars[j];
+              if (!o.active || o.knocked) continue;
+              const inSameRb =
+                o.edge?.roundaboutId === rbId || o.turn?.nextEdge.roundaboutId === rbId;
+              if (!inSameRb) continue;
+              const toNodeX = toN.x - o.x;
+              const toNodeZ = toN.z - o.z;
+              const distToEntry = Math.hypot(toNodeX, toNodeZ);
+              if (distToEntry < 18.0 && toNodeX * o.dirX + toNodeZ * o.dirZ > 0) {
+                mustYield = true;
+                break;
+              }
+            }
+            if (mustYield) {
+              desiredSpeed = Math.min(desiredSpeed, Math.max(0, (distToStopLine - 1.2) * 1.1));
+              if (distToStopLine <= 2.4) {
+                desiredSpeed = 0;
+              }
+            }
+          }
+        }
+
+        // Stop neatly BEFORE the intersection stop line on a red light (never inside a roundabout)
         if (
+          !curEdge.isRoundabout &&
           toN.hasTrafficLight &&
           distToStopLine > -1.0 &&
           distToStopLine < 14.0 &&
@@ -372,7 +404,7 @@ export class TrafficManager {
         const dx = toN.x - fromN.x;
         const dz = toN.z - fromN.z;
         const len = Math.max(0.01, Math.hypot(dx, dz));
-        const turnMargin = getTurnMargin(len);
+        const turnMargin = getTurnMargin(len, edge.isRoundabout);
 
         c.progress += c.speed * dt;
 
@@ -392,20 +424,50 @@ export class TrafficManager {
           nx = pt.x;
           nz = pt.z;
           ny = this.map.heightMap.sample(nx, nz) + c.spec.h * 0.5 + 0.04;
-          moveDirX = dx / len;
-          moveDirZ = dz / len;
+          const tLen = Math.hypot(pt.tx, pt.tz);
+          if (tLen > 0.001) {
+            moveDirX = pt.tx / tLen;
+            moveDirZ = pt.tz / tLen;
+          } else {
+            moveDirX = dx / len;
+            moveDirZ = dz / len;
+          }
           nyaw = Math.atan2(-moveDirX, -moveDirZ);
         } else {
           const tFrac = Math.max(0, Math.min(1, c.progress / len));
-          moveDirX = dx / len;
-          moveDirZ = dz / len;
-          const rx = -moveDirZ;
-          const rz = moveDirX;
-          const lat = c.laneOffset + c.swerveOffset;
-          nx = fromN.x + dx * tFrac + rx * lat;
-          nz = fromN.z + dz * tFrac + rz * lat;
-          ny = this.map.heightMap.sample(nx, nz) + c.spec.h * 0.5 + 0.04;
-          nyaw = Math.atan2(-moveDirX, -moveDirZ);
+          if (edge.isRoundabout && edge.roundaboutCenter) {
+            const cx = edge.roundaboutCenter.x;
+            const cz = edge.roundaboutCenter.z;
+            const a0 = Math.atan2(fromN.z - cz, fromN.x - cx);
+            const r0 = Math.hypot(fromN.x - cx, fromN.z - cz);
+            const a1 = Math.atan2(toN.z - cz, toN.x - cx);
+            const r1 = Math.hypot(toN.x - cx, toN.z - cz);
+            let da = a1 - a0;
+            while (da > Math.PI) da -= Math.PI * 2;
+            while (da < -Math.PI) da += Math.PI * 2;
+            const ang = a0 + da * tFrac;
+            const rad = r0 + (r1 - r0) * tFrac + c.laneOffset + c.swerveOffset;
+            nx = cx + Math.cos(ang) * rad;
+            nz = cz + Math.sin(ang) * rad;
+            const sign = da >= 0 ? 1 : -1;
+            const tx = -Math.sin(ang) * sign;
+            const tz = Math.cos(ang) * sign;
+            const tLen = Math.max(0.001, Math.hypot(tx, tz));
+            moveDirX = tx / tLen;
+            moveDirZ = tz / tLen;
+            ny = this.map.heightMap.sample(nx, nz) + c.spec.h * 0.5 + 0.04;
+            nyaw = Math.atan2(-moveDirX, -moveDirZ);
+          } else {
+            moveDirX = dx / len;
+            moveDirZ = dz / len;
+            const rx = -moveDirZ;
+            const rz = moveDirX;
+            const lat = c.laneOffset + c.swerveOffset;
+            nx = fromN.x + dx * tFrac + rx * lat;
+            nz = fromN.z + dz * tFrac + rz * lat;
+            ny = this.map.heightMap.sample(nx, nz) + c.spec.h * 0.5 + 0.04;
+            nyaw = Math.atan2(-moveDirX, -moveDirZ);
+          }
         }
       }
 
@@ -469,6 +531,34 @@ export class TrafficManager {
       // Dead end (e.g. riverbank): perform a smooth U-turn back onto the opposite lane instead of disappearing!
       nextEdge = edge;
       nextForward = !c.forward;
+      c.roundaboutEntryEdgeId = null;
+      c.roundaboutSteps = 0;
+    } else if (edge.isRoundabout) {
+      const filtered =
+        c.roundaboutEntryEdgeId && options.length > 1
+          ? options.filter((o) => o.edge.id !== c.roundaboutEntryEdgeId)
+          : options;
+      const ringOpts = filtered.filter((o) => o.edge.isRoundabout);
+      const exitOpts = filtered.filter((o) => !o.edge.isRoundabout);
+
+      let pick: { to: string; edge: RoadEdge };
+      if (
+        exitOpts.length > 0 &&
+        (c.roundaboutSteps >= 4 || ringOpts.length === 0 || (c.roundaboutSteps >= 1 && rng.chance(0.45)))
+      ) {
+        pick = rng.pick(exitOpts);
+        c.roundaboutEntryEdgeId = null;
+        c.roundaboutSteps = 0;
+      } else if (ringOpts.length > 0) {
+        pick = ringOpts[0];
+        c.roundaboutSteps++;
+      } else {
+        pick = rng.pick(filtered);
+        c.roundaboutEntryEdgeId = null;
+        c.roundaboutSteps = 0;
+      }
+      nextEdge = pick.edge;
+      nextForward = pick.edge.from === toN.id;
     } else {
       // Weight choices nicely: ~50% straight when available, ~50% left/right turns
       const weights = options.map((opt) => {
@@ -482,6 +572,10 @@ export class TrafficManager {
       const pick = rng.weightedPick(options, weights);
       nextEdge = pick.edge;
       nextForward = pick.edge.from === toN.id;
+      if (nextEdge.isRoundabout) {
+        c.roundaboutEntryEdgeId = edge.id;
+        c.roundaboutSteps = 0;
+      }
     }
 
     const outFrom = this.map.graph.getNode(nextForward ? nextEdge.from : nextEdge.to)!;
@@ -496,10 +590,18 @@ export class TrafficManager {
 
     const maxLane = Math.max(1, nextEdge.lanesPerDir);
     const laneW = (nextEdge.width * 0.5) / maxLane;
-    // Keep same lane index when continuing straight; pick natural lane when turning
-    const desiredLaneIdx = Math.min(maxLane - 1, Math.floor(c.laneOffset / Math.max(1.5, laneW)));
-    const nextLaneOffset = (desiredLaneIdx + 0.5) * laneW;
-    const outMargin = getTurnMargin(olen);
+    // Keep same lane index when continuing straight; center on 1-lane one-way / roundabout rings
+    let nextLaneOffset: number;
+    if (nextEdge.isOneWay && maxLane === 1) {
+      nextLaneOffset = 0;
+    } else if (nextEdge.isOneWay && maxLane > 1) {
+      const idx = Math.min(maxLane - 1, Math.floor(Math.abs(c.laneOffset) / Math.max(1.5, laneW)));
+      nextLaneOffset = (idx - (maxLane - 1) * 0.5) * laneW;
+    } else {
+      const desiredLaneIdx = Math.min(maxLane - 1, Math.floor(c.laneOffset / Math.max(1.5, laneW)));
+      nextLaneOffset = (desiredLaneIdx + 0.5) * laneW;
+    }
+    const outMargin = getTurnMargin(olen, nextEdge.isRoundabout);
 
     const p2x = outFrom.x + d2x * outMargin + r2x * nextLaneOffset;
     const p2z = outFrom.z + d2z * outMargin + r2z * nextLaneOffset;
@@ -568,19 +670,19 @@ export class TrafficManager {
       const d = Math.hypot(mx - px, mz - pz);
       if (d < BALANCE.trafficSpawnMin || d > BALANCE.trafficSpawnMax) continue;
 
-      const forward = rng.chance(0.5);
+      const forward = edge.isOneWay ? true : rng.chance(0.5);
       const fromN = forward ? a : b;
       const toN = forward ? b : a;
       const dx = toN.x - fromN.x;
       const dz = toN.z - fromN.z;
       const len = Math.max(1, Math.hypot(dx, dz));
-      const margin = getTurnMargin(len);
+      const margin = getTurnMargin(len, edge.isRoundabout);
       const tMin = Math.min(0.4, (margin + 4) / len);
       const tMax = Math.max(tMin + 0.05, 1 - (margin + 6) / len);
       const t = rng.range(tMin, tMax);
       const maxLane = Math.max(1, edge.lanesPerDir);
       const laneW = (edge.width * 0.5) / maxLane;
-      const laneOffset = (rng.int(0, maxLane - 1) + 0.5) * laneW;
+      const laneOffset = edge.isOneWay && maxLane === 1 ? 0 : (rng.int(0, maxLane - 1) + 0.5) * laneW;
       const dirX = dx / len;
       const dirZ = dz / len;
       const sx = fromN.x + dx * t - dirZ * laneOffset;

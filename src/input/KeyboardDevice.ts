@@ -100,6 +100,8 @@ export class KeyboardDevice implements InputDevice {
       indicatorRight: this.isJustPressed('indicatorRight'),
       shopBreak: this.isJustPressed('shopBreak'),
       lookBack: this.isHeld('lookBack'),
+      cameraLeft: this.isHeld('cameraLeft'),
+      cameraRight: this.isHeld('cameraRight'),
       resetCar: this.isHeld('resetCar'),
       pause: this.isJustPressed('pause'),
       uiUp: this.isJustPressed('uiUp'),

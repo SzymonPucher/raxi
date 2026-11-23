@@ -280,6 +280,8 @@ export class TrafficCar {
   public stuckTimer = 0;
   public nearMissCooldown = 0;
   public turn: TrafficTurnCurve | null = null;
+  public roundaboutEntryEdgeId: string | null = null;
+  public roundaboutSteps = 0;
 
   public x = 0;
   public y = -200;
@@ -355,6 +357,8 @@ export class TrafficCar {
     this.stuckTimer = 0;
     this.nearMissCooldown = 0;
     this.turn = null;
+    this.roundaboutEntryEdgeId = null;
+    this.roundaboutSteps = 0;
 
     this.body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
     this.setKinematicPose(x, y, z, yaw);
@@ -425,6 +429,8 @@ export class TrafficCar {
     this.knocked = false;
     this.edge = null;
     this.turn = null;
+    this.roundaboutEntryEdgeId = null;
+    this.roundaboutSteps = 0;
     this.mesh.visible = false;
     this.body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
     this.body.setTranslation({ x: 0, y: -200, z: 0 }, false);

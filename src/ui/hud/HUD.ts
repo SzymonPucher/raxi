@@ -32,6 +32,54 @@ export interface HUDUpdateData {
   waitingPassengers: WaitingPassenger[];
 }
 
+export interface LocationLabel {
+  street: string | null;
+  landmark: string | null;
+}
+
+const DISTRICT_LABELS: Record<string, string> = {
+  downtown: 'Downtown',
+  residential: 'Residential',
+  docks: 'Industrial / Docks',
+  park: 'Park',
+  outskirts: 'Outskirts',
+};
+
+/**
+ * Resolves the current street name and nearest landmark (if within proximity)
+ * at the player's world position and heading.
+ */
+export function getLocationLabel(
+  map: MapDefinition,
+  x: number,
+  z: number,
+  yaw: number
+): LocationLabel {
+  const fwdX = -Math.sin(yaw);
+  const fwdZ = -Math.cos(yaw);
+  const proj = map.graph.projectPoint(x, z, fwdX, fwdZ, 26);
+
+  let street: string | null = null;
+  if (proj) {
+    street = proj.edge.name?.trim() || DISTRICT_LABELS[proj.fromNode.district] || null;
+  }
+
+  let landmark: string | null = null;
+  let bestDist = Infinity;
+  for (const lm of map.landmarks) {
+    const reach = Math.max(58, Math.max(lm.footprintW, lm.footprintD) * 0.75 + 28);
+    const dCenter = Math.hypot(x - lm.x, z - lm.z);
+    const dCurb = Math.hypot(x - lm.curbX, z - lm.curbZ);
+    const d = Math.min(dCenter, dCurb + 12);
+    if (d <= reach && d < bestDist) {
+      bestDist = d;
+      landmark = lm.name;
+    }
+  }
+
+  return { street, landmark };
+}
+
 export class HUD {
   public readonly root: HTMLDivElement;
   public readonly minimap: Minimap;
@@ -62,6 +110,10 @@ export class HUD {
   private readonly stopBarEl: HTMLDivElement;
 
   private readonly controlsHintEl: HTMLDivElement;
+  private readonly locationPillEl: HTMLDivElement;
+  private readonly locationLandmarkEl: HTMLDivElement;
+  private readonly locationStreetEl: HTMLDivElement;
+  private lastLocKey = '';
   private readonly abilitiesRow: HTMLDivElement;
   private readonly speedNumEl: HTMLSpanElement;
   private readonly speedUnitEl: HTMLSpanElement;
@@ -158,7 +210,21 @@ export class HUD {
     // Bottom Left
     const bottomLeft = document.createElement('div');
     bottomLeft.className = 'hud-bottom-left';
+    const minimapCol = document.createElement('div');
+    minimapCol.className = 'hud-minimap-col';
+
+    this.locationPillEl = document.createElement('div');
+    this.locationPillEl.className = 'hud-location-pill';
+    this.locationPillEl.style.display = 'none';
+    this.locationLandmarkEl = document.createElement('div');
+    this.locationLandmarkEl.className = 'hud-location-landmark';
+    this.locationStreetEl = document.createElement('div');
+    this.locationStreetEl.className = 'hud-location-street';
+    this.locationPillEl.append(this.locationLandmarkEl, this.locationStreetEl);
+
     this.minimap = new Minimap();
+    minimapCol.append(this.locationPillEl, this.minimap.canvas);
+
     this.controlsHintEl = document.createElement('div');
     this.controlsHintEl.className = 'hud-controls-hint';
     this.controlsHintEl.innerHTML = `
@@ -166,7 +232,7 @@ export class HUD {
       <kbd>Q</kbd>/<kbd>E</kbd> Powers &nbsp;<kbd>Z</kbd>/<kbd>X</kbd> Blinkers &nbsp;<kbd>H</kbd> Horn<br/>
       <kbd>B</kbd> Shop Break &nbsp;<kbd>C</kbd> Look Back &nbsp;<kbd>R</kbd> Reset &nbsp;<kbd>P</kbd> Pause
     `;
-    bottomLeft.append(this.minimap.canvas, this.controlsHintEl);
+    bottomLeft.append(minimapCol, this.controlsHintEl);
     this.root.appendChild(bottomLeft);
 
     // Bottom Right
@@ -342,6 +408,30 @@ export class HUD {
 
     // Controls hint
     this.controlsHintEl.style.display = settings.showControls ? 'block' : 'none';
+
+    // Street & Landmark indicator
+    const loc = getLocationLabel(data.map, data.playerX, data.playerZ, data.playerYaw);
+    const locKey = `${loc.landmark ?? ''}|${loc.street ?? ''}`;
+    if (locKey !== this.lastLocKey) {
+      this.lastLocKey = locKey;
+      if (!loc.landmark && !loc.street) {
+        this.locationPillEl.style.display = 'none';
+      } else {
+        this.locationPillEl.style.display = 'flex';
+        if (loc.landmark) {
+          this.locationLandmarkEl.textContent = `📍 ${loc.landmark}`;
+          this.locationLandmarkEl.style.display = 'block';
+        } else {
+          this.locationLandmarkEl.style.display = 'none';
+        }
+        if (loc.street) {
+          this.locationStreetEl.textContent = loc.street;
+          this.locationStreetEl.style.display = 'block';
+        } else {
+          this.locationStreetEl.style.display = 'none';
+        }
+      }
+    }
 
     // Minimap
     this.minimap.render({

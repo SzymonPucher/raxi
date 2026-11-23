@@ -22,6 +22,9 @@ export interface RoadEdge {
   name?: string; // optional real street name
   isShortcut?: boolean;
   isOneWay?: boolean;
+  isRoundabout?: boolean;
+  roundaboutId?: string;
+  roundaboutCenter?: { x: number; z: number; radius: number };
   length: number;
   blocked?: boolean;
 }

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { Storage } from '../src/save/Storage';
+import { getLocationLabel } from '../src/ui/hud/HUD';
 import { AVAILABLE_MAPS, createMapById, getMapMeta } from '../src/world/MapRegistry';
 
 function createMemoryLocalStorage(initial: Record<string, string> = {}): globalThis.Storage {
@@ -284,6 +285,42 @@ describe('Mikołów, Poland MapDefinition', () => {
         }
       }
     }
+  });
+
+  it('models real-world Mikołów roundabouts as counter-clockwise one-way rings with no signals inside', () => {
+    const rbEdges = graph.edges.filter((e) => e.isRoundabout);
+    expect(rbEdges.length).toBeGreaterThan(20);
+
+    const rbIds = new Set(rbEdges.map((e) => e.roundaboutId).filter(Boolean));
+    expect(rbIds.size).toBe(8);
+
+    for (const e of rbEdges) {
+      expect(e.isOneWay).toBe(true);
+      expect(e.roundaboutCenter).toBeDefined();
+      const a = graph.getNode(e.from)!;
+      const b = graph.getNode(e.to)!;
+      expect(a.hasTrafficLight).toBe(false);
+      expect(b.hasTrafficLight).toBe(false);
+      // Counter-clockwise in XZ (+X East, +Z South): cross product (a-c) x (b-c) <= 0
+      const c = e.roundaboutCenter!;
+      const cross = (a.x - c.x) * (b.z - c.z) - (a.z - c.z) * (b.x - c.x);
+      expect(cross, `roundabout edge ${e.id} winding`).toBeLessThanOrEqual(0.01);
+    }
+
+    // Real-world building coverage (>3000 OSM-derived buildings)
+    expect(map.customBuildings?.length ?? 0).toBeGreaterThan(3000);
+  });
+
+  it('resolves street and landmark names near Mikołów landmarks', () => {
+    const baz = map.landmarks.find((l) => l.id === 'bazylika_wojciecha')!;
+    const loc = getLocationLabel(map, baz.curbX, baz.curbZ, 0);
+    expect(loc.landmark).toBe('Bazylika św. Wojciecha');
+    expect(loc.street).toBeTruthy();
+
+    const rynek = map.landmarks.find((l) => l.id === 'ratusz_rynek')!;
+    const locRynek = getLocationLabel(map, rynek.curbX, rynek.curbZ, 0);
+    expect(locRynek.landmark).toBe('Ratusz na Rynku');
+    expect(locRynek.street).toBeTruthy();
   });
 });
 

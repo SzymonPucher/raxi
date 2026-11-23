@@ -12,6 +12,8 @@ export type KeyAction =
   | 'indicatorRight'
   | 'shopBreak'
   | 'lookBack'
+  | 'cameraLeft'
+  | 'cameraRight'
   | 'resetCar'
   | 'pause'
   | 'uiUp'
@@ -41,6 +43,8 @@ export const DEFAULT_KEY_BINDINGS: KeyBindings = {
   indicatorRight: ['KeyX'],
   shopBreak: ['KeyB'],
   lookBack: ['KeyC'],
+  cameraLeft: ['KeyJ', 'BracketLeft', 'Comma'],
+  cameraRight: ['KeyL', 'BracketRight', 'Period'],
   resetCar: ['KeyR'],
   pause: ['Escape', 'KeyP'],
   uiUp: ['ArrowUp', 'KeyW'],

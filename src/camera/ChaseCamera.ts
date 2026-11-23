@@ -21,6 +21,13 @@ export class ChaseCamera {
   private shakeDuration = 0.2;
   public shakeEnabled = true;
 
+  private orbitYaw = 0;
+  private orbitPitch = 0;
+  private orbitIdleTimer = 0;
+  private dragPointerId: number | null = null;
+  private lastDragX = 0;
+  private lastDragY = 0;
+
   private readonly tmpPos = new THREE.Vector3();
   private readonly tmpQuat = new THREE.Quaternion();
   private readonly tmpFwd = new THREE.Vector3();
@@ -31,10 +38,45 @@ export class ChaseCamera {
   ) {
     this.camera.fov = 65;
     this.camera.updateProjectionMatrix();
+    this.bindPointerOrbit();
+  }
+
+  private bindPointerOrbit(): void {
+    if (typeof document === 'undefined') return;
+    const canvas = document.getElementById('game-canvas');
+    if (!canvas) return;
+
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    canvas.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 && e.button !== 2) return;
+      this.dragPointerId = e.pointerId;
+      this.lastDragX = e.clientX;
+      this.lastDragY = e.clientY;
+    });
+    window.addEventListener('pointermove', (e) => {
+      if (e.pointerId !== this.dragPointerId) return;
+      const dx = e.clientX - this.lastDragX;
+      const dy = e.clientY - this.lastDragY;
+      this.lastDragX = e.clientX;
+      this.lastDragY = e.clientY;
+      this.orbitYaw -= dx * 0.0065;
+      this.orbitPitch = Math.max(-0.25, Math.min(0.75, this.orbitPitch + dy * 0.0045));
+      this.orbitIdleTimer = 0;
+    });
+    const endDrag = (e: PointerEvent) => {
+      if (e.pointerId === this.dragPointerId) {
+        this.dragPointerId = null;
+      }
+    };
+    window.addEventListener('pointerup', endDrag);
+    window.addEventListener('pointercancel', endDrag);
   }
 
   snapToVehicle(vehicle: ArcadeVehicle): void {
     vehicle.syncFromBody();
+    this.orbitYaw = 0;
+    this.orbitPitch = 0;
+    this.orbitIdleTimer = 0;
     const back = vehicle.forwardDir.clone().negate();
     this.smoothedDir.copy(vehicle.forwardDir);
     this.currentPos
@@ -55,7 +97,15 @@ export class ChaseCamera {
     }
   }
 
-  update(vehicle: ArcadeVehicle, alpha: number, dt: number, lookBack: boolean): void {
+  update(
+    vehicle: ArcadeVehicle,
+    alpha: number,
+    dt: number,
+    lookBack: boolean,
+    cameraLeft = false,
+    cameraRight = false,
+    isDrivingInput = false
+  ): void {
     vehicle.getInterpolatedTransform(alpha, this.tmpPos, this.tmpQuat);
     this.tmpFwd.set(0, 0, -1).applyQuaternion(this.tmpQuat);
     this.tmpFwd.y = 0;
@@ -77,10 +127,43 @@ export class ChaseCamera {
 
     this.smoothedDir.lerp(desiredDir, 1 - Math.exp(-7.5 * dt)).normalize();
 
-    const activeDir = lookBack ? this.tmpFwd.clone().negate() : this.smoothedDir;
+    // Two-button camera rotation + auto-reset shortly after continuing to ride
+    const rotInput = (cameraRight ? 1 : 0) - (cameraLeft ? 1 : 0);
+    if (rotInput !== 0) {
+      this.orbitYaw -= rotInput * 2.2 * dt;
+      this.orbitIdleTimer = 0;
+    } else if (this.dragPointerId === null && (Math.abs(this.orbitYaw) > 0.001 || Math.abs(this.orbitPitch) > 0.001)) {
+      if (horizSpeed > 2.5 || isDrivingInput) {
+        this.orbitIdleTimer += dt;
+        if (this.orbitIdleTimer >= 1.1) {
+          const decay = Math.exp(-5.5 * dt);
+          this.orbitYaw *= decay;
+          this.orbitPitch *= decay;
+          if (Math.abs(this.orbitYaw) < 0.002) this.orbitYaw = 0;
+          if (Math.abs(this.orbitPitch) < 0.002) this.orbitPitch = 0;
+        }
+      }
+    }
 
-    const backDist = 6.7;
-    const upHeight = 2.6;
+    if (lookBack) {
+      this.orbitYaw = 0;
+      this.orbitPitch = 0;
+    }
+
+    const activeDir = lookBack ? this.tmpFwd.clone().negate() : this.smoothedDir.clone();
+    if (!lookBack && Math.abs(this.orbitYaw) > 0.0005) {
+      const cosY = Math.cos(this.orbitYaw);
+      const sinY = Math.sin(this.orbitYaw);
+      const ox = activeDir.x * cosY - activeDir.z * sinY;
+      const oz = activeDir.x * sinY + activeDir.z * cosY;
+      activeDir.x = ox;
+      activeDir.z = oz;
+    }
+
+    const baseBack = 6.7;
+    const baseUp = 2.6;
+    const backDist = baseBack * Math.cos(this.orbitPitch);
+    const upHeight = baseUp + baseBack * Math.sin(this.orbitPitch);
     const pivot = new THREE.Vector3(this.tmpPos.x, this.tmpPos.y + 1.35, this.tmpPos.z);
     const idealPos = pivot
       .clone()
