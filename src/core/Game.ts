@@ -11,12 +11,11 @@ import { EffectsManager } from '../fx/EffectsManager';
 import {
   ActiveFare,
   createActiveFare,
-  evaluateFareRatings,
-  isFarePerfectDrive,
+  evaluateFareRewards,
 } from '../gameplay/Fare';
 import { PassengerTypeId } from '../gameplay/Passenger';
 import { PassengerSpawner } from '../gameplay/PassengerSpawner';
-import { computeDeliveryRewards, computePickupBonus } from '../gameplay/Scoring';
+import { computePickupBonus } from '../gameplay/Scoring';
 import { Shift, ShiftSummary } from '../gameplay/Shift';
 import { InputManager } from '../input/InputManager';
 import { CollisionContactEvent, PhysicsWorld } from '../physics/PhysicsWorld';
@@ -34,7 +33,7 @@ import { ArcadeVehicle } from '../vehicle/ArcadeVehicle';
 import { VehicleStats } from '../vehicle/VehicleStats';
 import { VehicleVisual } from '../vehicle/VehicleVisual';
 import { CityBuildResult, buildCity } from '../world/CityBuilder';
-import { MapDefinition, getDistrictAt } from '../world/mapData';
+import { MapDefinition } from '../world/mapData';
 import { MapId, createMapById } from '../world/MapRegistry';
 
 function disposeObject3D(root: THREE.Object3D): void {
@@ -748,11 +747,6 @@ export class Game {
           this.shift.timer.subtract(BALANCE.resetTimePenalty);
           this.ui.hud.showTimeFloat(-BALANCE.resetTimePenalty);
         }
-        const pen = this.shift.safety.recordFlipReset();
-        for (const f of this.shift.activeFares) {
-          f.safetyPenalties += pen;
-          f.accidents += 1;
-        }
         this.applyCarDamage(BALANCE.damageFlipReset, 'flip');
         this.ui.hud.showPopup('CAR RESET!', '#ff9100');
       }
@@ -931,13 +925,7 @@ export class Game {
       });
     }
 
-    if (!inBreak) {
-      for (const d of pedRes.scares) {
-        const pen = this.shift.safety.recordPedScare();
-        for (const f of this.shift.activeFares) f.safetyPenalties += pen;
-        this.events.emit('safety:pedScare', { distance: d });
-      }
-    }
+    // Pedestrian near-miss scares no longer reduce safety score (only collisions count)
   }
 
   private applyCarDamage(rawPct: number, source: string): void {
@@ -1014,8 +1002,6 @@ export class Game {
         this.ui.hud.showPopup(award.label, '#ff4081');
       }
       if (l.dropHeight > BALANCE.safetyHardLandingDropMeters && !l.clean) {
-        const pen = this.shift.safety.recordHardLanding();
-        for (const f of this.shift.activeFares) f.safetyPenalties += pen;
         this.applyCarDamage(BALANCE.damageHardLanding, 'landing');
       }
 
@@ -1061,20 +1047,6 @@ export class Game {
       }
     }
 
-    // Residential excessive speeding safety penalty (§9.5)
-    const currentDistrict =
-      this.activeMapId === 'raxi_city'
-        ? getDistrictAt(this.vehicle.currPosition.x, this.vehicle.currPosition.z)
-        : proj?.aheadNode.district;
-    if (
-      proj &&
-      currentDistrict === 'residential' &&
-      this.vehicle.speed > proj.edge.speedLimit * BALANCE.safetyResidentialSpeedLimitMult
-    ) {
-      const pen = this.shift.safety.recordResidentialSpeeding(dt);
-      for (const f of this.shift.activeFares) f.safetyPenalties += pen;
-    }
-
     // RulesTracker (§9.5 & §8.2a)
     const upcomingRed = proj
       ? this.lights.isRedForDirection(
@@ -1108,7 +1080,6 @@ export class Game {
     }
     for (const v of ruleRes.violations) {
       for (const f of this.shift.activeFares) {
-        f.safetyPenalties += v.penalty;
         if (v.label) f.ruleViolations += 1;
       }
       if (v.label) {
@@ -1297,28 +1268,19 @@ export class Game {
     const fare = this.shift.activeFares.splice(fareIndex, 1)[0];
     if (!fare) return;
 
-    const ratings = evaluateFareRatings(
+    const { ratings, rewards, perfectDrive, midasTriple } = evaluateFareRewards({
       fare,
-      this.stats.get('safety.penaltyMult'),
-      this.powerManager.isCurseActive('daredevil_license'),
-      this.powerManager.has('daredevil_license') ? 0.3 : 0
-    );
-    const perfectDrive = isFarePerfectDrive(fare);
-    const nextDeliveryNum = this.shift.deliveries + 1;
-    const midasTriple = this.powerManager.has('midas_meter') && nextDeliveryNum % 3 === 0;
-
-    const rewards = computeDeliveryRewards({
-      routeLength: fare.routeLength,
       tier: this.shift.tier,
-      ratings,
-      passenger: fare.passenger,
-      comboMult: this.shift.deliveryComboMult,
+      deliveriesCompleted: this.shift.deliveries,
+      deliveryComboMult: this.shift.deliveryComboMult,
+      safetyPenaltyStatMult: this.stats.get('safety.penaltyMult'),
       deliveryTimeStatMult: this.stats.get('timer.deliveryMult'),
       cashStatMult: this.stats.get('score.cashMult'),
       tipStatMult: this.stats.get('score.tipMult'),
-      perfectDrive,
+      daredevilCurseActive: this.powerManager.isCurseActive('daredevil_license'),
+      extraStyleWeight: this.powerManager.has('daredevil_license') ? 0.3 : 0,
       celebrityChauffeurOwned: this.powerManager.has('celebrity_chauffeur'),
-      midasTriple,
+      midasMeterOwned: this.powerManager.has('midas_meter'),
     });
 
     this.grantCash(rewards.cash);

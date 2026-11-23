@@ -56,10 +56,10 @@ export const BALANCE = {
   abandonCashPenalty: 15,
 
   // Grandma special multipliers (§8.2a)
-  grandmaParMult: 2.5,
-  grandmaPatienceMult: 4.0,
-  grandmaPickupBonusMult: 1.5,
-  grandmaPerfectTimeMult: 1.5,
+  grandmaParMult: 1.05,
+  grandmaPatienceMult: 1.1,
+  grandmaPickupBonusMult: 1.05,
+  grandmaPerfectTimeMult: 1.05,
   grandmaPerfectTipMult: 2.0,
   strictAccidentMultSlope: 1.5, // 1 + 1.5 * strictness => 2.5 for Grandma
 

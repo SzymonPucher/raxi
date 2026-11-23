@@ -1,6 +1,6 @@
 import { BALANCE } from '../../core/config/balance';
 import { ActiveDifficultyEvent } from '../../gameplay/Difficulty';
-import { ActiveFare, evaluateFareRatings, getFarePatienceFraction } from '../../gameplay/Fare';
+import { ActiveFare, evaluateFareRewards, getFarePatienceFraction } from '../../gameplay/Fare';
 import { RulesChecklist } from '../../gameplay/RulesTracker';
 import { Shift } from '../../gameplay/Shift';
 import { WaitingPassenger } from '../../gameplay/PassengerSpawner';
@@ -91,6 +91,9 @@ export class HUD {
   private readonly timerBox: HTMLDivElement;
   private readonly timerLabel: HTMLDivElement;
   private readonly timerValue: HTMLDivElement;
+  private readonly liveFareBox: HTMLDivElement;
+  private readonly liveFareValue: HTMLDivElement;
+  private readonly liveFareSub: HTMLDivElement;
   private readonly timeFloatBox: HTMLDivElement;
   private readonly eventBanner: HTMLDivElement;
 
@@ -116,6 +119,7 @@ export class HUD {
   private lastDraftDone = -1;
   private lastPowersHtml = '';
   private lastFareHtml = '';
+  private lastLiveFareKey = '';
   private lastAbilitiesHtml = '';
   private lastStopHtml = '';
   private lastScoreVal = -1;
@@ -146,6 +150,9 @@ export class HUD {
     // Top Center
     const topCenter = document.createElement('div');
     topCenter.className = 'hud-top-center';
+    const topCenterRow = document.createElement('div');
+    topCenterRow.className = 'hud-top-center-row';
+
     this.timerBox = document.createElement('div');
     this.timerBox.className = 'hud-timer-box';
     this.timerLabel = document.createElement('div');
@@ -156,6 +163,22 @@ export class HUD {
     this.timerValue.textContent = '90.0';
     this.timerBox.append(this.timerLabel, this.timerValue);
 
+    this.liveFareBox = document.createElement('div');
+    this.liveFareBox.className = 'hud-live-fare-box';
+    this.liveFareBox.style.display = 'none';
+    const liveFareLabel = document.createElement('div');
+    liveFareLabel.className = 'hud-live-fare-label';
+    liveFareLabel.textContent = 'FARE CASH';
+    this.liveFareValue = document.createElement('div');
+    this.liveFareValue.className = 'hud-live-fare-value';
+    this.liveFareValue.textContent = '$0';
+    this.liveFareSub = document.createElement('div');
+    this.liveFareSub.className = 'hud-live-fare-sub';
+    this.liveFareSub.textContent = 'GRADE S';
+    this.liveFareBox.append(liveFareLabel, this.liveFareValue, this.liveFareSub);
+
+    topCenterRow.append(this.timerBox, this.liveFareBox);
+
     this.timeFloatBox = document.createElement('div');
     this.timeFloatBox.className = 'hud-time-float-container';
 
@@ -163,7 +186,7 @@ export class HUD {
     this.eventBanner.className = 'hud-banner hud-banner-event';
     this.eventBanner.style.display = 'none';
 
-    topCenter.append(this.timerBox, this.eventBanner, this.timeFloatBox);
+    topCenter.append(topCenterRow, this.eventBanner, this.timeFloatBox);
     this.root.appendChild(topCenter);
 
     // Top Right
@@ -474,18 +497,62 @@ export class HUD {
     pm: PowerManager
   ): void {
     let html: string;
+    let liveFareKey = 'hidden';
+
     if (fares.length === 0) {
       html = data.inBreakMode
         ? `<div class="hud-fare-card"><div class="hud-fare-dest">🔧 GARAGE BREAK</div><div class="hud-fare-sub">Follow the cyan GPS route to any Raxi Garage, or press B to resume shift.</div></div>`
         : `<div class="hud-fare-card"><div class="hud-fare-dest">🚖 LOOKING FOR FARE</div><div class="hud-fare-sub">Stop in a colored ring: 🟢 Short • 🟡 Med • 🔴 Long<br/>Press <b>B</b> anytime (empty cab) for Garage Break.</div></div>`;
     } else {
-      const safetyMult = pm.stats.get('safety.penaltyMult');
-      const daredevilCurse = pm.isCurseActive('daredevil_license');
-      const extraStyleW = pm.has('daredevil_license') ? 0.3 : 0;
+      const safetyPenaltyStatMult = pm.stats.get('safety.penaltyMult');
+      const deliveryTimeStatMult = pm.stats.get('timer.deliveryMult');
+      const cashStatMult = pm.stats.get('score.cashMult');
+      const tipStatMult = pm.stats.get('score.tipMult');
+      const daredevilCurseActive = pm.isCurseActive('daredevil_license');
+      const extraStyleWeight = pm.has('daredevil_license') ? 0.3 : 0;
+      const celebrityChauffeurOwned = pm.has('celebrity_chauffeur');
+      const midasMeterOwned = pm.has('midas_meter');
 
-      html = fares
-        .map((fare) => {
-          const ratings = evaluateFareRatings(fare, safetyMult, daredevilCurse, extraStyleW);
+      let totalLiveCash = 0;
+      let totalLiveTime = 0;
+      const previews = fares.map((fare, idx) => {
+        const preview = evaluateFareRewards({
+          fare,
+          tier: data.shift.tier,
+          deliveriesCompleted: data.shift.deliveries,
+          deliveryComboMult: data.shift.deliveryComboMult,
+          safetyPenaltyStatMult,
+          deliveryTimeStatMult,
+          cashStatMult,
+          tipStatMult,
+          daredevilCurseActive,
+          extraStyleWeight,
+          celebrityChauffeurOwned,
+          midasMeterOwned,
+          deliveryOrderOffset: idx,
+        });
+        totalLiveCash += preview.rewards.cash;
+        totalLiveTime += preview.rewards.deliveryTimeBonus;
+        return { fare, preview };
+      });
+
+      if (!data.inBreakMode) {
+        const cashStr = `$${totalLiveCash.toLocaleString()}`;
+        const subStr =
+          previews.length > 1
+            ? `${previews.length} FARES • +${totalLiveTime.toFixed(1)}s`
+            : `${previews[0].preview.midasTriple ? '👑 ×3 • ' : ''}GRADE ${previews[0].preview.ratings.grade} • +${totalLiveTime.toFixed(1)}s`;
+        liveFareKey = `${cashStr}|${subStr}`;
+        if (liveFareKey !== this.lastLiveFareKey) {
+          this.liveFareBox.style.display = 'flex';
+          this.liveFareValue.textContent = cashStr;
+          this.liveFareSub.textContent = subStr;
+        }
+      }
+
+      html = previews
+        .map(({ fare, preview }) => {
+          const { ratings, rewards } = preview;
           const dist = Math.round(Math.hypot(fare.destinationX - data.playerX, fare.destinationZ - data.playerZ));
           const pat = Math.round(getFarePatienceFraction(fare) * 100);
           const w = fare.passenger.weights;
@@ -494,8 +561,6 @@ export class HUD {
           const rulesHtml = isGrandma
             ? `<div class="hud-rules-checklist">
               <span class="${data.rulesChecklist.redLights === 0 ? 'rule-ok' : 'rule-fail'}">🚦 Lights ${data.rulesChecklist.redLights === 0 ? '✓' : `✗${data.rulesChecklist.redLights}`}</span>
-              <span class="${data.rulesChecklist.blinkers === 0 ? 'rule-ok' : 'rule-fail'}">◀▶ Blinkers ${data.rulesChecklist.blinkers === 0 ? '✓' : `✗${data.rulesChecklist.blinkers}`}</span>
-              <span class="${data.rulesChecklist.speeding === 0 ? 'rule-ok' : 'rule-fail'}">🐢 Speed ${data.rulesChecklist.speeding === 0 ? '✓' : `✗${data.rulesChecklist.speeding}`}</span>
               <span class="${fare.accidents === 0 ? 'rule-ok' : 'rule-fail'}">🛡️ Safe ${fare.accidents === 0 ? '✓' : `✗${fare.accidents}`}</span>
             </div>`
             : '';
@@ -504,10 +569,11 @@ export class HUD {
           <div class="hud-fare-card">
             <div class="hud-fare-header">
               <div class="hud-fare-emoji">${fare.passenger.emoji}</div>
-              <div>
+              <div style="min-width:0;flex:1">
                 <div class="hud-fare-dest">${fare.destinationName} (${dist} m)</div>
                 <div class="hud-fare-sub">${fare.passenger.name} • ${fare.passenger.tagline}</div>
               </div>
+              <div class="hud-fare-payout">$${rewards.cash.toLocaleString()}</div>
             </div>
             <div class="hud-bar-row">
               <span>⚡ SPD ${Math.round(w.speed * 100)}%</span>
@@ -535,6 +601,12 @@ export class HUD {
         })
         .join('');
     }
+
+    if (liveFareKey === 'hidden' && this.lastLiveFareKey !== 'hidden') {
+      this.liveFareBox.style.display = 'none';
+    }
+    this.lastLiveFareKey = liveFareKey;
+
     if (html !== this.lastFareHtml) {
       this.lastFareHtml = html;
       this.fareContainer.innerHTML = html;

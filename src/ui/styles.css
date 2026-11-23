@@ -125,6 +125,13 @@ body {
   gap: 6px;
 }
 
+.hud-top-center-row {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 10px;
+}
+
 .hud-timer-box {
   background: var(--panel-bg);
   border: 3px solid var(--taxi-yellow);
@@ -133,6 +140,41 @@ body {
   text-align: center;
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55);
   min-width: 170px;
+}
+
+.hud-live-fare-box {
+  background: var(--panel-bg);
+  border: 3px solid var(--accent-green);
+  border-radius: 12px;
+  padding: 6px 18px;
+  text-align: center;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55);
+  min-width: 124px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+.hud-live-fare-label {
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  color: var(--accent-green);
+  font-weight: 800;
+}
+.hud-live-fare-value {
+  font-family: var(--font-display);
+  font-size: 34px;
+  line-height: 1.05;
+  letter-spacing: 1px;
+  color: var(--accent-green);
+  text-shadow: 0 3px 0 #000;
+}
+.hud-live-fare-sub {
+  font-size: 10px;
+  font-weight: 800;
+  color: #cfd8dc;
+  letter-spacing: 0.6px;
+  white-space: nowrap;
 }
 .hud-timer-box.low {
   border-color: var(--accent-red);
@@ -325,6 +367,13 @@ body {
 .hud-fare-sub {
   font-size: 11px;
   color: var(--text-muted);
+}
+.hud-fare-payout {
+  font-family: var(--font-display);
+  font-size: 20px;
+  color: var(--accent-green);
+  text-shadow: 0 2px 0 #000;
+  flex-shrink: 0;
 }
 
 .hud-bar-row {
@@ -1154,11 +1203,30 @@ body {
     top: 6px;
     gap: 3px;
   }
+  .hud-top-center-row {
+    gap: 6px;
+  }
   .hud-timer-box {
     padding: 3px 12px;
     min-width: 96px;
     border-width: 2px;
     border-radius: 8px;
+  }
+  .hud-live-fare-box {
+    padding: 3px 9px;
+    min-width: 72px;
+    border-width: 2px;
+    border-radius: 8px;
+  }
+  .hud-live-fare-label {
+    font-size: 8px;
+    letter-spacing: 0.5px;
+  }
+  .hud-live-fare-value {
+    font-size: 18px;
+  }
+  .hud-live-fare-sub {
+    font-size: 8px;
   }
   .hud-timer-label {
     font-size: 8px;

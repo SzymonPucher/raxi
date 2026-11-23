@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { BreakMode } from '../src/gameplay/BreakMode';
 import { CarCondition } from '../src/gameplay/CarCondition';
 import { RulesTracker } from '../src/gameplay/RulesTracker';
+import { SafetyTracker } from '../src/gameplay/SafetyTracker';
 import { ShiftTimer } from '../src/gameplay/ShiftTimer';
 import { Wallet } from '../src/gameplay/Wallet';
 import { createMapDefinition } from '../src/world/mapData';
@@ -103,7 +104,7 @@ describe('ShiftTimer, Wallet, CarCondition, BreakMode & RulesTracker', () => {
     expect(bm.canStart({ hasActivePassenger: false, inDraft: false, timeRemaining: 20 }).allowed).toBe(true);
   });
 
-  it('RulesTracker detects red light, lane change without blinker, and allows signaled lane change', () => {
+  it('RulesTracker ignores lack of blinker, wrong lane, and speeding, and red lights carry zero safety penalty', () => {
     const rules = new RulesTracker();
 
     // Approach red light outside stop line (15m) then cross stop line (9m)
@@ -125,24 +126,29 @@ describe('ShiftTimer, Wallet, CarCondition, BreakMode & RulesTracker', () => {
       upcomingLightRed: true,
       ruleStrictness: 1.0,
     });
-    expect(crossRed.violations.some((v) => v.kind === 'redLight')).toBe(true);
+    const redEv = crossRed.violations.find((v) => v.kind === 'redLight');
+    expect(redEv).toBeDefined();
+    expect(redEv?.penalty).toBe(0);
     expect(rules.checklist.redLights).toBe(1);
 
-    // Unsignaled lane change (lane 0 -> 1)
-    const noBlink = rules.update({
-      dt: 0.1,
-      speed: 12,
-      projection: makeProjection({ laneIndex: 1, distToAheadNode: 40 }),
+    // Unsignaled lane change (lane 0 -> 1), oncoming lane, and speeding should not be tracked
+    const noViolations = rules.update({
+      dt: 2.5,
+      speed: 40,
+      projection: makeProjection({ laneIndex: 1, distToAheadNode: 40, isOncoming: true }),
       blinker: 'off',
       blinkerOnTime: 0,
       upcomingLightRed: false,
       ruleStrictness: 1.0,
     });
-    expect(noBlink.violations.some((v) => v.kind === 'noBlinker')).toBe(true);
+    expect(noViolations.violations).toEqual([]);
+    expect(rules.checklist.blinkers).toBe(0);
+    expect(rules.checklist.oncoming).toBe(0);
+    expect(rules.checklist.speeding).toBe(0);
 
-    // Wait cooldown then do properly signaled lane change (lane 1 -> 0 with left blinker on >= 0.8s)
+    // Properly signaled lane change still auto-cancels blinker
     rules.update({
-      dt: 2.5,
+      dt: 0.1,
       speed: 12,
       projection: makeProjection({ laneIndex: 1, distToAheadNode: 40 }),
       blinker: 'left',
@@ -159,8 +165,28 @@ describe('ShiftTimer, Wallet, CarCondition, BreakMode & RulesTracker', () => {
       upcomingLightRed: false,
       ruleStrictness: 1.0,
     });
-    expect(signaled.violations.length).toBe(0);
+    expect(signaled.violations).toEqual([]);
     expect(signaled.shouldCancelBlinker).toBe(true);
+  });
+
+  it('SafetyTracker only accumulates penalties from collisions', () => {
+    const safety = new SafetyTracker();
+    expect(safety.farePenalties).toBe(0);
+
+    const wall = safety.recordWallHit(4000, 0);
+    expect(wall).not.toBeNull();
+    expect(wall!.penalty).toBeGreaterThan(0);
+    expect(safety.farePenalties).toBeCloseTo(wall!.penalty, 5);
+    expect(safety.fareAccidents).toBe(1);
+
+    safety.tick(0.5);
+    const traffic = safety.recordTrafficHit(5000, 1.0, false);
+    expect(traffic).not.toBeNull();
+    expect(safety.fareAccidents).toBe(2);
+
+    const ped = safety.recordPedestrianExplosion(0);
+    expect(ped).toBeGreaterThan(0);
+    expect(safety.fareAccidents).toBe(3);
   });
 
   it('does not issue a no-blinker penalty when driving straight through an intersection', () => {

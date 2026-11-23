@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { createActiveFare, evaluateFareRewards } from '../src/gameplay/Fare';
 import { PASSENGER_TYPES } from '../src/gameplay/Passenger';
 import {
   computeDeliveryRewards,
@@ -119,5 +120,56 @@ describe('Scoring formulas (§9)', () => {
     });
     expect(midas.cash).toBeCloseTo(normal.cash * 3, -1);
     expect(midas.deliveryTimeBonus).toBeCloseTo(normal.deliveryTimeBonus * 3, 0);
+  });
+
+  it('gives safety-focused passengers ~5% higher trip time bonuses and updates live fare cash dynamically', () => {
+    const regularPickup = computePickupBonus(600, 0, 1, PASSENGER_TYPES.regular.pickupBonusMult);
+    const grandmaPickup = computePickupBonus(600, 0, 1, PASSENGER_TYPES.grandma.pickupBonusMult);
+    const touristPickup = computePickupBonus(600, 0, 1, PASSENGER_TYPES.tourist.pickupBonusMult);
+    expect(grandmaPickup / regularPickup).toBeCloseTo(1.05, 4);
+    expect(touristPickup / regularPickup).toBeCloseTo(1.05, 4);
+
+    const fare = createActiveFare({
+      id: 'pax_live',
+      passenger: PASSENGER_TYPES.regular,
+      destinationName: 'Plaza',
+      destinationX: 0,
+      destinationY: 0,
+      destinationZ: 600,
+      tripCategory: 'medium',
+      routeLength: 600,
+      tier: 0,
+      patienceStatMult: 1,
+    });
+
+    const evalCash = () =>
+      evaluateFareRewards({
+        fare,
+        tier: 0,
+        deliveriesCompleted: 0,
+        deliveryComboMult: 1,
+        safetyPenaltyStatMult: 1,
+        deliveryTimeStatMult: 1,
+        cashStatMult: 1,
+        tipStatMult: 1,
+        daredevilCurseActive: false,
+        extraStyleWeight: 0,
+        celebrityChauffeurOwned: false,
+        midasMeterOwned: false,
+      }).rewards.cash;
+
+    const initialCash = evalCash();
+    fare.stylePoints += 240; // style increases live cash
+    const styledCash = evalCash();
+    expect(styledCash).toBeGreaterThan(initialCash);
+
+    fare.elapsed = fare.parTime * 1.1; // slower trip lowers speed rating & live cash
+    const slowerCash = evalCash();
+    expect(slowerCash).toBeLessThan(styledCash);
+
+    fare.safetyPenalties += 0.4; // collision lowers safety rating & live cash
+    fare.accidents += 1;
+    const crashedCash = evalCash();
+    expect(crashedCash).toBeLessThan(slowerCash);
   });
 });

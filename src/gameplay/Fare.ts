@@ -1,6 +1,12 @@
 import { BALANCE } from '../core/config/balance';
 import { PassengerTypeDef, TripLengthCategory } from './Passenger';
-import { ComputedRatings, computeParTime, computeRatings } from './Scoring';
+import {
+  ComputedRatings,
+  DeliveryRewardResult,
+  computeDeliveryRewards,
+  computeParTime,
+  computeRatings,
+} from './Scoring';
 
 export interface ActiveFare {
   id: string;
@@ -76,8 +82,55 @@ export function evaluateFareRatings(
   });
 }
 
+export interface FareRewardPreview {
+  ratings: ComputedRatings;
+  rewards: DeliveryRewardResult;
+  perfectDrive: boolean;
+  midasTriple: boolean;
+}
+
+export function evaluateFareRewards(params: {
+  fare: ActiveFare;
+  tier: number;
+  deliveriesCompleted: number;
+  deliveryComboMult: number;
+  safetyPenaltyStatMult: number;
+  deliveryTimeStatMult: number;
+  cashStatMult: number;
+  tipStatMult: number;
+  daredevilCurseActive: boolean;
+  extraStyleWeight: number;
+  celebrityChauffeurOwned: boolean;
+  midasMeterOwned: boolean;
+  deliveryOrderOffset?: number;
+}): FareRewardPreview {
+  const ratings = evaluateFareRatings(
+    params.fare,
+    params.safetyPenaltyStatMult,
+    params.daredevilCurseActive,
+    params.extraStyleWeight
+  );
+  const perfectDrive = isFarePerfectDrive(params.fare);
+  const nextDeliveryNum = params.deliveriesCompleted + 1 + (params.deliveryOrderOffset ?? 0);
+  const midasTriple = params.midasMeterOwned && nextDeliveryNum % 3 === 0;
+  const rewards = computeDeliveryRewards({
+    routeLength: params.fare.routeLength,
+    tier: params.tier,
+    ratings,
+    passenger: params.fare.passenger,
+    comboMult: params.deliveryComboMult,
+    deliveryTimeStatMult: params.deliveryTimeStatMult,
+    cashStatMult: params.cashStatMult,
+    tipStatMult: params.tipStatMult,
+    perfectDrive,
+    celebrityChauffeurOwned: params.celebrityChauffeurOwned,
+    midasTriple,
+  });
+  return { ratings, rewards, perfectDrive, midasTriple };
+}
+
 export function isFarePerfectDrive(fare: ActiveFare): boolean {
-  return fare.accidents === 0 && fare.ruleViolations === 0;
+  return fare.accidents === 0;
 }
 
 export function getFarePatienceFraction(fare: ActiveFare): number {

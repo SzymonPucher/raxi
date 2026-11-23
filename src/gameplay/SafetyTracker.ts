@@ -2,7 +2,8 @@ import { BALANCE } from '../core/config/balance';
 
 /**
  * Safety penalties tracker (§9.5).
- * Penalties accumulate per active fare; accident penalties are scaled by (1 + 1.5 * strictness) for strict passengers.
+ * Only collisions (traffic, walls, pedestrians) reduce safety score;
+ * accident penalties are scaled by (1 + 1.5 * strictness) for strict passengers.
  */
 export class SafetyTracker {
   public farePenalties = 0;
@@ -69,28 +70,5 @@ export class SafetyTracker {
     this.fareAccidents += 1;
     this.totalAccidents += 1;
     return penalty;
-  }
-
-  recordPedScare(): number {
-    this.farePenalties += BALANCE.safetyPedScare;
-    return BALANCE.safetyPedScare;
-  }
-
-  recordHardLanding(): number {
-    this.farePenalties += BALANCE.safetyHardLanding;
-    return BALANCE.safetyHardLanding;
-  }
-
-  recordFlipReset(): number {
-    this.farePenalties += BALANCE.safetyFlipReset;
-    this.fareAccidents += 1;
-    this.totalAccidents += 1;
-    return BALANCE.safetyFlipReset;
-  }
-
-  recordResidentialSpeeding(dt: number): number {
-    const pen = BALANCE.safetyResidentialSpeedingPerSec * dt;
-    this.farePenalties += pen;
-    return pen;
   }
 }

@@ -141,7 +141,7 @@ export function renderHowToPlay(container: HTMLElement, cb: ScreenCallbacks): HT
           <p>You start with <b>90 seconds</b>. Stop inside a colored ring (🟢 Short, 🟡 Medium, 🔴 Long) to pick up a passenger, then race to the glowing green beam!</p>
           <p>Every <b>3 deliveries</b> triggers a <b>Power Draft</b> (pick 1 of 3 roguelike powers). When the shift timer hits 0, your run ends.</p>
           <h3 style="color:var(--taxi-yellow);margin:12px 0 6px">👵 PASSENGER TYPES</h3>
-          <p>Each passenger values Speed, Style, and Safety differently! <b>Grandma</b> wants you to obey red lights, use <b>Z/X blinkers</b> before lane changes, and respect speed limits — a clean Grandma trip pays massive time & tips!</p>
+          <p>Each passenger values Speed, Style, and Safety differently! <b>Grandma</b> cares most about safety — avoid collisions for a clean trip, bonus time &amp; extra tips!</p>
           <p>Watch out for <b>pedestrians</b>: hitting them triggers a cartoon explosion (−12% car condition & big safety hit!).</p>
         </div>
         <div>
