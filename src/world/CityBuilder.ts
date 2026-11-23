@@ -145,10 +145,339 @@ function setSolidUVs(geo: THREE.BufferGeometry): void {
  * - 4 Raxi Garages with beams & drivable bays
  * - Jump ramps with hazard stripes
  */
+export interface RoadSegment2D {
+  ax: number;
+  az: number;
+  bx: number;
+  bz: number;
+  dirX: number;
+  dirZ: number;
+  rnX: number;
+  rnZ: number;
+  len: number;
+  halfW: number;
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+}
+
+export interface RoadCorridorIndex {
+  cellSize: number;
+  grid: Map<string, RoadSegment2D[]>;
+}
+
+function distPointToSeg2D(
+  px: number,
+  pz: number,
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number
+): number {
+  const dx = bx - ax;
+  const dz = bz - az;
+  const lenSq = dx * dx + dz * dz;
+  if (lenSq < 1e-8) return Math.hypot(px - ax, pz - az);
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (pz - az) * dz) / lenSq));
+  return Math.hypot(px - (ax + dx * t), pz - (az + dz * t));
+}
+
+function pointInPoly2D(px: number, pz: number, poly: Array<[number, number]>): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, zi] = poly[i];
+    const [xj, zj] = poly[j];
+    if (zi > pz !== zj > pz && px < ((xj - xi) * (pz - zi)) / (zj - zi + 1e-12) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+function segsIntersect2D(
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+  cx: number,
+  cz: number,
+  dx: number,
+  dz: number
+): boolean {
+  const ccw = (p1x: number, p1z: number, p2x: number, p2z: number, p3x: number, p3z: number) =>
+    (p3z - p1z) * (p2x - p1x) > (p2z - p1z) * (p3x - p1x);
+  return (
+    ccw(ax, az, cx, cz, dx, dz) !== ccw(bx, bz, cx, cz, dx, dz) &&
+    ccw(ax, az, bx, bz, cx, cz) !== ccw(ax, az, bx, bz, dx, dz)
+  );
+}
+
+function distSegToSeg2D(
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+  cx: number,
+  cz: number,
+  dx: number,
+  dz: number
+): number {
+  if (segsIntersect2D(ax, az, bx, bz, cx, cz, dx, dz)) return 0;
+  return Math.min(
+    distPointToSeg2D(ax, az, cx, cz, dx, dz),
+    distPointToSeg2D(bx, bz, cx, cz, dx, dz),
+    distPointToSeg2D(cx, cz, ax, az, bx, bz),
+    distPointToSeg2D(dx, dz, ax, az, bx, bz)
+  );
+}
+
+function minDistPolyToSeg2D(
+  poly: Array<[number, number]>,
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number
+): number {
+  if (
+    pointInPoly2D(ax, az, poly) ||
+    pointInPoly2D(bx, bz, poly) ||
+    pointInPoly2D((ax + bx) * 0.5, (az + bz) * 0.5, poly)
+  ) {
+    return 0;
+  }
+  let best = Infinity;
+  for (let i = 0; i < poly.length; i++) {
+    const p0 = poly[i];
+    const p1 = poly[(i + 1) % poly.length];
+    const d = distSegToSeg2D(p0[0], p0[1], p1[0], p1[1], ax, az, bx, bz);
+    if (d < best) best = d;
+  }
+  return best;
+}
+
+function polygonArea2D(poly: Array<[number, number]>): number {
+  let area2 = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i];
+    const b = poly[(i + 1) % poly.length];
+    area2 += a[0] * b[1] - b[0] * a[1];
+  }
+  return Math.abs(area2) * 0.5;
+}
+
+export function boxFootprintCorners(
+  cx: number,
+  cz: number,
+  hx: number,
+  hz: number,
+  rotY = 0
+): Array<[number, number]> {
+  const cos = rotY === 0 ? 1 : Math.cos(rotY);
+  const sin = rotY === 0 ? 0 : Math.sin(rotY);
+  const local: Array<[number, number]> = [
+    [-hx, -hz],
+    [hx, -hz],
+    [hx, hz],
+    [-hx, hz],
+  ];
+  return local.map(([lx, lz]) => [cx + lx * cos + lz * sin, cz - lx * sin + lz * cos]);
+}
+
+function clipPolyHalfPlane(
+  poly: Array<[number, number]>,
+  evalSignedDist: (x: number, z: number) => number
+): Array<[number, number]> {
+  if (poly.length < 3) return [];
+  const out: Array<[number, number]> = [];
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i];
+    const b = poly[(i + 1) % poly.length];
+    const da = evalSignedDist(a[0], a[1]);
+    const db = evalSignedDist(b[0], b[1]);
+    const aIn = da >= 0;
+    const bIn = db >= 0;
+    if (aIn && bIn) {
+      out.push(b);
+    } else if (aIn && !bIn) {
+      const t = da / (da - db);
+      out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
+    } else if (!aIn && bIn) {
+      const t = da / (da - db);
+      out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
+      out.push(b);
+    }
+  }
+  return out;
+}
+
+export function buildRoadCorridorIndex(map: MapDefinition): RoadCorridorIndex {
+  const cellSize = 64;
+  const grid = new Map<string, RoadSegment2D[]>();
+  for (const e of map.graph.edges) {
+    const a = map.graph.getNode(e.from);
+    const b = map.graph.getNode(e.to);
+    if (!a || !b) continue;
+    const dx = b.x - a.x;
+    const dz = b.z - a.z;
+    const len = Math.hypot(dx, dz);
+    if (len < 1e-4) continue;
+    const dirX = dx / len;
+    const dirZ = dz / len;
+    const halfW = e.width * 0.5;
+    const pad = halfW + 1;
+    const seg: RoadSegment2D = {
+      ax: a.x,
+      az: a.z,
+      bx: b.x,
+      bz: b.z,
+      dirX,
+      dirZ,
+      rnX: -dirZ,
+      rnZ: dirX,
+      len,
+      halfW,
+      minX: Math.min(a.x, b.x) - pad,
+      maxX: Math.max(a.x, b.x) + pad,
+      minZ: Math.min(a.z, b.z) - pad,
+      maxZ: Math.max(a.z, b.z) + pad,
+    };
+    const minCX = Math.floor(seg.minX / cellSize);
+    const maxCX = Math.floor(seg.maxX / cellSize);
+    const minCZ = Math.floor(seg.minZ / cellSize);
+    const maxCZ = Math.floor(seg.maxZ / cellSize);
+    for (let cx = minCX; cx <= maxCX; cx++) {
+      for (let cz = minCZ; cz <= maxCZ; cz++) {
+        const key = `${cx}_${cz}`;
+        let list = grid.get(key);
+        if (!list) {
+          list = [];
+          grid.set(key, list);
+        }
+        list.push(seg);
+      }
+    }
+  }
+  return { cellSize, grid };
+}
+
+/**
+ * Clips a rectangular building footprint so portions protruding onto an adjacent street
+ * are trimmed out of the physics hitbox without moving the visual building.
+ */
+export function clipFootprintOutsideStreets(
+  cx: number,
+  cz: number,
+  hx: number,
+  hz: number,
+  rotY: number,
+  roadIndex: RoadCorridorIndex
+): { clipped: boolean; poly: Array<[number, number]> } {
+  let poly = boxFootprintCorners(cx, cz, hx, hz, rotY);
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+  for (const [x, z] of poly) {
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (z < minZ) minZ = z;
+    if (z > maxZ) maxZ = z;
+  }
+
+  const seen = new Set<RoadSegment2D>();
+  const minCX = Math.floor(minX / roadIndex.cellSize);
+  const maxCX = Math.floor(maxX / roadIndex.cellSize);
+  const minCZ = Math.floor(minZ / roadIndex.cellSize);
+  const maxCZ = Math.floor(maxZ / roadIndex.cellSize);
+  let clipped = false;
+
+  for (let gx = minCX; gx <= maxCX; gx++) {
+    for (let gz = minCZ; gz <= maxCZ; gz++) {
+      const list = roadIndex.grid.get(`${gx}_${gz}`);
+      if (!list) continue;
+      for (const seg of list) {
+        if (seen.has(seg)) continue;
+        seen.add(seg);
+        if (maxX < seg.minX || minX > seg.maxX || maxZ < seg.minZ || minZ > seg.maxZ) continue;
+        const d = minDistPolyToSeg2D(poly, seg.ax, seg.az, seg.bx, seg.bz);
+        if (d >= seg.halfW - 0.02) continue;
+
+        const centerLat = (cx - seg.ax) * seg.rnX + (cz - seg.az) * seg.rnZ;
+        if (Math.abs(centerLat) < seg.halfW * 0.85) continue;
+
+        const sideSign = centerLat >= 0 ? 1 : -1;
+        const candidate = clipPolyHalfPlane(
+          poly,
+          (x, z) => sideSign * ((x - seg.ax) * seg.rnX + (z - seg.az) * seg.rnZ) - seg.halfW
+        );
+        if (candidate.length >= 3 && polygonArea2D(candidate) >= 1.0) {
+          poly = candidate;
+          clipped = true;
+        }
+      }
+    }
+  }
+
+  return { clipped, poly };
+}
+
+function addPolygonBuildingCollider(
+  physics: PhysicsWorld,
+  rawPoly: Array<[number, number]>,
+  yBottom: number,
+  yTop: number
+): void {
+  const poly = ensurePositiveXZArea(rawPoly);
+  const colGeo = createPolygonWallsGeometry(poly, yBottom, yTop, 0);
+  const colPos = colGeo.attributes.position as THREE.BufferAttribute;
+  const colIdx = colGeo.index!;
+  if (colIdx.count >= 3) {
+    physics.createStaticTrimesh(
+      new Float32Array(colPos.array as Float32Array),
+      new Uint32Array(colIdx.array),
+      { kind: 'building' },
+      CG.STATIC_WORLD
+    );
+  }
+  colGeo.dispose();
+}
+
+function addStreetSafeBoxCollider(
+  physics: PhysicsWorld,
+  roadIndex: RoadCorridorIndex,
+  x: number,
+  yBottom: number,
+  yTop: number,
+  z: number,
+  hx: number,
+  hz: number,
+  rotY = 0
+): void {
+  const { clipped, poly } = clipFootprintOutsideStreets(x, z, hx, hz, rotY, roadIndex);
+  if (clipped) {
+    addPolygonBuildingCollider(physics, poly, yBottom, yTop);
+    return;
+  }
+  const colH = Math.max(2, yTop - yBottom);
+  physics.createStaticBox(
+    x,
+    yBottom + colH * 0.5,
+    z,
+    hx,
+    colH * 0.5,
+    hz,
+    { kind: 'building' },
+    CG.STATIC_WORLD,
+    rotY
+  );
+}
+
 export function buildCity(map: MapDefinition, physics: PhysicsWorld): CityBuildResult {
   const root = new THREE.Group();
   const textures = createCityTextures();
   const rng = new Rng(20120420); // Fixed map seed -> identical city every run
+  const roadIndex = buildRoadCorridorIndex(map);
 
   // 1. Single unified Terrain HeightMap with all roads painted directly on it
   const { group: terrainGroup } = buildTerrain(map, physics);
@@ -180,10 +509,10 @@ export function buildCity(map: MapDefinition, physics: PhysicsWorld): CityBuildR
 
   // 4. Generate deterministic district buildings (Raxi City) OR authentic custom architecture (Mikołów)
   if (!map.disableDefaultGridBuildings) {
-    buildDistrictBuildings(map, chunkBuilder, physics, rng);
+    buildDistrictBuildings(map, chunkBuilder, physics, rng, roadIndex);
   }
   if (map.customBuildings && map.customBuildings.length > 0) {
-    buildCustomBuildings(map, chunkBuilder, physics);
+    buildCustomBuildings(map, chunkBuilder, physics, roadIndex);
   }
   if (map.fences && map.fences.length > 0) {
     buildFences(map, chunkBuilder, physics);
@@ -191,12 +520,12 @@ export function buildCity(map: MapDefinition, physics: PhysicsWorld): CityBuildR
 
   // 5. Build all distinctive Landmarks
   for (const lm of map.landmarks) {
-    buildLandmark(lm, map, chunkBuilder, physics);
+    buildLandmark(lm, map, chunkBuilder, physics, roadIndex);
   }
 
   // 6. Build Industrial Shipping Containers in Docks (Raxi City only)
   if (!map.disableDefaultGridBuildings) {
-    buildDocksContainers(map, chunkBuilder, physics, rng);
+    buildDocksContainers(map, chunkBuilder, physics, rng, roadIndex);
   }
 
   const { root: chunkRoot, chunks } = chunkBuilder.build();
@@ -367,7 +696,8 @@ function createGableEndsGeometry(w: number, h: number, d: number): THREE.BufferG
 function buildCustomBuildings(
   map: MapDefinition,
   chunks: ChunkBuilder,
-  physics: PhysicsWorld
+  physics: PhysicsWorld,
+  roadIndex: RoadCorridorIndex
 ): void {
   const buildings = map.customBuildings ?? [];
   const unifiedChunkMat = map.id === 'mikolow';
@@ -432,18 +762,8 @@ function buildCustomBuildings(
         if (cap) commitPoly(cap, roofColor, 'landmarks');
       }
 
-      const colH = Math.max(2, topY - foundationBottom);
-      physics.createStaticBox(
-        b.x,
-        foundationBottom + colH * 0.5,
-        b.z,
-        b.w * 0.5,
-        colH * 0.5,
-        b.d * 0.5,
-        { kind: 'building' },
-        CG.STATIC_WORLD,
-        rotY
-      );
+      // Exact polygonal static trimesh collider matching the building footprint
+      addPolygonBuildingCollider(physics, poly, foundationBottom, Math.max(foundationBottom + 2, topY + 0.5));
       continue;
     }
 
@@ -650,17 +970,16 @@ function buildCustomBuildings(
       );
     }
 
-    // Solid oriented static building collider covering foundation to roof eaves
-    const colH = Math.max(2, topY - foundationBottom);
-    physics.createStaticBox(
+    // Solid oriented static building collider covering foundation to roof eaves (clipped clear of streets)
+    addStreetSafeBoxCollider(
+      physics,
+      roadIndex,
       b.x,
-      foundationBottom + colH * 0.5,
+      foundationBottom,
+      Math.max(foundationBottom + 2, topY),
       b.z,
       b.w * 0.5,
-      colH * 0.5,
       b.d * 0.5,
-      { kind: 'building' },
-      CG.STATIC_WORLD,
       rotY
     );
   }
@@ -767,7 +1086,8 @@ function buildDistrictBuildings(
   map: MapDefinition,
   chunks: ChunkBuilder,
   physics: PhysicsWorld,
-  rng: Rng
+  rng: Rng,
+  roadIndex: RoadCorridorIndex
 ): void {
   const blockCenters = [-450, -350, -250, -150, -50, 50, 150, 250, 350, 450];
 
@@ -820,7 +1140,7 @@ function buildDistrictBuildings(
           chunks.addGeometry(px, pz, 'landmarks', cap, 0x455a64);
           cap.dispose();
 
-          physics.createStaticBox(px, h * 0.5, pz, w * 0.5, h * 0.5, d * 0.5, { kind: 'building' });
+          addStreetSafeBoxCollider(physics, roadIndex, px, 0, h, pz, w * 0.5, d * 0.5);
         }
       } else if (district === 'residential') {
         // 4 small 2-3 story pastel houses with pitched roofs
@@ -850,7 +1170,7 @@ function buildDistrictBuildings(
           chunks.addGeometry(px, pz, 'landmarks', roof, rng.pick([0x8d4e3c, 0x5d4037, 0x455a64]));
           roof.dispose();
 
-          physics.createStaticBox(px, h * 0.5, pz, w * 0.5, h * 0.5, d * 0.5, { kind: 'building' });
+          addStreetSafeBoxCollider(physics, roadIndex, px, 0, h, pz, w * 0.5, d * 0.5);
         }
       } else if (district === 'docks') {
         // Warehouses & open drift lots
@@ -866,7 +1186,7 @@ function buildDistrictBuildings(
         chunks.addGeometry(bx, bz, 'buildings', geo, color);
         geo.dispose();
 
-        physics.createStaticBox(bx, h * 0.5, bz, w * 0.5, h * 0.5, d * 0.5, { kind: 'building' });
+        addStreetSafeBoxCollider(physics, roadIndex, bx, 0, h, bz, w * 0.5, d * 0.5);
       }
     }
   }
@@ -876,7 +1196,8 @@ function buildDocksContainers(
   map: MapDefinition,
   chunks: ChunkBuilder,
   physics: PhysicsWorld,
-  rng: Rng
+  rng: Rng,
+  roadIndex: RoadCorridorIndex
 ): void {
   const containerColors = [0xd84315, 0x1565c0, 0x2e7d32, 0xf9a825, 0x6a1b9a];
   const spots = [
@@ -895,7 +1216,7 @@ function buildDocksContainers(
       geo.translate(px, 1.6, pz);
       chunks.addGeometry(px, pz, 'landmarks', geo, rng.pick(containerColors));
       geo.dispose();
-      physics.createStaticBox(px, 1.6, pz, 1.6, 1.6, 4.75, { kind: 'building' });
+      addStreetSafeBoxCollider(physics, roadIndex, px, 0, 3.2, pz, 1.6, 4.75);
     }
   }
 }
@@ -1118,15 +1439,7 @@ function buildPolygonalLandmark(
     }
 
     // 4. Exact polygonal static trimesh physics collider (no oversized bounding box blocking parking lots!)
-    const colGeo = createPolygonWallsGeometry(poly, foundationBottom, topY + 0.5, 0);
-    const colPos = colGeo.attributes.position as THREE.BufferAttribute;
-    const colIdx = colGeo.index!;
-    physics.createStaticTrimesh(
-      new Float32Array(colPos.array as Float32Array),
-      new Uint32Array(colIdx.array),
-      { kind: 'building' }
-    );
-    colGeo.dispose();
+    addPolygonBuildingCollider(physics, poly, foundationBottom, topY + 0.5);
   }
 }
 
@@ -1134,7 +1447,8 @@ function buildLandmark(
   lm: LandmarkDef,
   map: MapDefinition,
   chunks: ChunkBuilder,
-  physics: PhysicsWorld
+  physics: PhysicsWorld,
+  roadIndex: RoadCorridorIndex
 ): void {
   if (lm.footprintParts && lm.footprintParts.length > 0) {
     buildPolygonalLandmark(lm, map, chunks, physics);
@@ -1179,7 +1493,7 @@ function buildLandmark(
 
   // Add hillside foundation plinth whenever ground is sloped (or on Mikołów hills) so zero landmarks ever float!
   const needsPlinth = baseY - minY > 0.15 || map.id === 'mikolow';
-  if (needsPlinth) {
+  if (needsPlinth && lm.style !== 'block_estate') {
     const plinthH = baseY + 0.5 - foundationBottom;
     const plinthY = (foundationBottom + baseY + 0.5) * 0.5 - baseY;
     addBox(0, plinthY, 0, lm.footprintW + 0.4, plinthH, lm.footprintD + 0.4, 0x5c5750, 'landmarks');
@@ -1456,6 +1770,19 @@ function buildLandmark(
     const d = lm.footprintD;
     const h = lm.height;
 
+    const wings = [
+      { ox: -w * 0.12, oz: -d * 0.1, ww: w * 0.72, wd: d * 0.46, wh: h },
+      { ox: w * 0.24, oz: d * 0.16, ww: w * 0.44, wd: d * 0.62, wh: h * 0.84 },
+      { ox: w * 0.06, oz: 0, ww: w * 0.18, wd: d * 0.26, wh: h * 1.08 },
+    ];
+    if (needsPlinth) {
+      const plinthH = baseY + 0.5 - foundationBottom;
+      const plinthY = (foundationBottom + baseY + 0.5) * 0.5 - baseY;
+      for (const wing of wings) {
+        addBox(wing.ox, plinthY, wing.oz, wing.ww + 0.3, plinthH, wing.wd + 0.3, 0x5c5750, 'landmarks');
+      }
+    }
+
     // Main apartment wing
     addBox(-w * 0.12, h * 0.5, -d * 0.1, w * 0.72, h, d * 0.46, lm.color, 'buildings');
     // Offset perpendicular/staggered wing
@@ -1471,6 +1798,22 @@ function buildLandmark(
     // Flat roof caps
     addBox(-w * 0.12, h + 0.3, -d * 0.1, w * 0.74, 0.6, d * 0.48, 0x4d545c, 'landmarks');
     addBox(w * 0.24, h * 0.84 + 0.3, d * 0.16, w * 0.46, 0.6, d * 0.64, 0x4d545c, 'landmarks');
+
+    // Wing-accurate colliders so empty courtyard corners never block adjacent streets
+    const colBottom = needsPlinth ? foundationBottom : baseY;
+    for (const wing of wings) {
+      addStreetSafeBoxCollider(
+        physics,
+        roadIndex,
+        lm.x + wing.ox,
+        colBottom,
+        baseY + wing.wh,
+        lm.z + wing.oz,
+        wing.ww * 0.5,
+        wing.wd * 0.5
+      );
+    }
+    return;
   } else if (lm.style === 'retail_center') {
     // Modern Polish shopping center (Auchan / Kaufland / CH Mikołów): wide hall + bold accent fascia + glass entrance portico
     const w = lm.footprintW;
@@ -1502,15 +1845,15 @@ function buildLandmark(
 
   const colBottom = needsPlinth ? foundationBottom : baseY;
   const colTop = baseY + lm.height;
-  const colH = Math.max(2, colTop - colBottom);
-  physics.createStaticBox(
+  addStreetSafeBoxCollider(
+    physics,
+    roadIndex,
     lm.x,
-    colBottom + colH * 0.5,
+    colBottom,
+    Math.max(colBottom + 2, colTop),
     lm.z,
     lm.footprintW * 0.5,
-    colH * 0.5,
-    lm.footprintD * 0.5,
-    { kind: 'building' }
+    lm.footprintD * 0.5
   );
 }
 
