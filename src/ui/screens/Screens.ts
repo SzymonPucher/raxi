@@ -7,9 +7,15 @@ import { GameSettings, HighScoreEntry, PersistentStats } from '../../save/Storag
 import { Shop } from '../../shop/Shop';
 import { CarCondition } from '../../gameplay/CarCondition';
 import { Wallet } from '../../gameplay/Wallet';
+import { AVAILABLE_MAPS, MapId, getMapMeta } from '../../world/MapRegistry';
+
+export function getMapIcon(mapId: MapId): string {
+  return mapId === 'mikolow' ? '🇵🇱' : '🏙️';
+}
 
 export interface ScreenCallbacks {
   onNewShift(): void;
+  onSelectMap(mapId: MapId): void;
   onResume(): void;
   onRestartShift(): void;
   onQuitToMenu(): void;
@@ -44,30 +50,63 @@ function formatStatPreview(power: PowerDef, pm: PowerManager): string {
 export function renderMainMenu(
   container: HTMLElement,
   stats: PersistentStats,
+  selectedMap: MapId,
   cb: ScreenCallbacks
 ): HTMLElement[] {
+  const mapCardsHtml = AVAILABLE_MAPS.map((m) => {
+    const active = m.id === selectedMap;
+    return `
+      <button
+        type="button"
+        class="map-card${active ? ' active' : ''}"
+        data-map-id="${m.id}"
+        aria-pressed="${active ? 'true' : 'false'}"
+      >
+        <div class="map-card-top">
+          <span class="map-card-title">${getMapIcon(m.id)} ${m.name}</span>
+          ${active ? '<span class="map-card-badge">SELECTED</span>' : ''}
+        </div>
+        <div class="map-card-sub">${m.subtitle}</div>
+      </button>
+    `;
+  }).join('');
+
   container.innerHTML = `
-    <div class="screen-panel narrow">
+    <div class="screen-panel narrow main-menu-panel">
       <h1 class="raxi-logo">RAXI</h1>
       <div class="raxi-checker"></div>
       <p class="screen-subtitle">Roguelike Arcade Taxi • Pick up, drift, draft powers, survive the shift!</p>
+      <div class="map-selector-section">
+        <div class="map-selector-label">SELECT CITY MAP</div>
+        <div class="map-selector-grid">${mapCardsHtml}</div>
+      </div>
       <div class="btn-stack">
         <button class="raxi-btn primary" data-act="new">🚖 NEW SHIFT</button>
         <button class="raxi-btn" data-act="how">📖 HOW TO PLAY</button>
         <button class="raxi-btn" data-act="scores">🏆 HIGH SCORES</button>
         <button class="raxi-btn" data-act="settings">⚙️ SETTINGS</button>
       </div>
-      <div class="screen-subtitle" style="margin-top:18px;font-size:12px">
+      <div class="screen-subtitle" style="margin-top:16px;font-size:12px">
         Best Score: <b>$${stats.bestScore.toLocaleString()}</b> • Shifts: ${stats.shifts} • Deliveries: ${stats.totalDeliveries}
       </div>
     </div>
   `;
-  const btns = Array.from(container.querySelectorAll<HTMLElement>('button'));
-  btns[0].onclick = () => cb.onNewShift();
-  btns[1].onclick = () => cb.onOpenHowToPlay();
-  btns[2].onclick = () => cb.onOpenHighScores();
-  btns[3].onclick = () => cb.onOpenSettings('main');
-  return btns;
+
+  const mapCards = Array.from(container.querySelectorAll<HTMLElement>('.map-card'));
+  mapCards.forEach((card) => {
+    card.onclick = () => cb.onSelectMap(card.dataset.mapId as MapId);
+  });
+
+  const newBtn = container.querySelector<HTMLElement>('[data-act="new"]')!;
+  const howBtn = container.querySelector<HTMLElement>('[data-act="how"]')!;
+  const scoresBtn = container.querySelector<HTMLElement>('[data-act="scores"]')!;
+  const settingsBtn = container.querySelector<HTMLElement>('[data-act="settings"]')!;
+  newBtn.onclick = () => cb.onNewShift();
+  howBtn.onclick = () => cb.onOpenHowToPlay();
+  scoresBtn.onclick = () => cb.onOpenHighScores();
+  settingsBtn.onclick = () => cb.onOpenSettings('main');
+
+  return [...mapCards, newBtn, howBtn, scoresBtn, settingsBtn];
 }
 
 export function renderPauseMenu(container: HTMLElement, cb: ScreenCallbacks): HTMLElement[] {
@@ -134,19 +173,20 @@ export function renderHighScores(
 ): HTMLElement[] {
   const rows =
     scores.length === 0
-      ? `<tr><td colspan="5" style="text-align:center;color:var(--text-muted)">No completed shifts yet — hit the road!</td></tr>`
+      ? `<tr><td colspan="6" style="text-align:center;color:var(--text-muted)">No completed shifts yet — hit the road!</td></tr>`
       : scores
-          .map(
-            (s, i) =>
-              `<tr><td>#${i + 1}</td><td style="color:var(--taxi-yellow);font-weight:800">$${s.score.toLocaleString()}</td><td>${s.deliveries}</td><td>${s.timeSurvived}s</td><td><code>${s.seed}</code> (${s.date})</td></tr>`
-          )
+          .map((s, i) => {
+            const mapId: MapId = s.mapId ?? 'raxi_city';
+            const meta = getMapMeta(mapId);
+            return `<tr><td>#${i + 1}</td><td>${getMapIcon(mapId)} ${meta.name}</td><td style="color:var(--taxi-yellow);font-weight:800">$${s.score.toLocaleString()}</td><td>${s.deliveries}</td><td>${s.timeSurvived}s</td><td><code>${s.seed}</code> (${s.date})</td></tr>`;
+          })
           .join('');
   container.innerHTML = `
     <div class="screen-panel">
       <h2 style="font-family:var(--font-display);font-size:34px;color:var(--taxi-yellow);margin:0">🏆 HIGH SCORES</h2>
       <div class="raxi-checker"></div>
       <table class="raxi-table">
-        <thead><tr><th>Rank</th><th>Score</th><th>Deliveries</th><th>Time</th><th>Seed / Date</th></tr></thead>
+        <thead><tr><th>Rank</th><th>Map</th><th>Score</th><th>Deliveries</th><th>Time</th><th>Seed / Date</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
       <div class="btn-row"><button class="raxi-btn primary">BACK</button></div>
@@ -487,8 +527,10 @@ export function renderShiftOver(
   summary: ShiftSummary,
   isNewBest: boolean,
   highScores: readonly HighScoreEntry[],
+  activeMapId: MapId,
   cb: ScreenCallbacks
 ): HTMLElement[] {
+  const activeMeta = getMapMeta(activeMapId);
   const powersHtml =
     summary.powersTaken.length > 0
       ? summary.powersTaken
@@ -498,10 +540,11 @@ export function renderShiftOver(
 
   const top5 = highScores
     .slice(0, 5)
-    .map(
-      (h, i) =>
-        `<tr><td>#${i + 1}</td><td style="color:var(--taxi-yellow);font-weight:800">$${h.score.toLocaleString()}</td><td>${h.deliveries}</td><td><code>${h.seed}</code></td></tr>`
-    )
+    .map((h, i) => {
+      const mId: MapId = h.mapId ?? 'raxi_city';
+      const meta = getMapMeta(mId);
+      return `<tr><td>#${i + 1}</td><td>${getMapIcon(mId)} ${meta.name}</td><td style="color:var(--taxi-yellow);font-weight:800">$${h.score.toLocaleString()}</td><td>${h.deliveries}</td><td><code>${h.seed}</code></td></tr>`;
+    })
     .join('');
 
   container.innerHTML = `
@@ -509,6 +552,7 @@ export function renderShiftOver(
       <div style="text-align:center">
         <h2 style="font-family:var(--font-display);font-size:46px;color:var(--taxi-yellow);margin:0">SHIFT OVER!</h2>
         ${isNewBest ? '<div style="color:#00e676;font-weight:900;font-size:16px;margin-top:4px">🏆 NEW HIGH SCORE!</div>' : ''}
+        <div style="margin-top:6px"><span class="map-pill">${getMapIcon(activeMapId)} ${activeMeta.name}</span></div>
         <div style="font-family:var(--font-display);font-size:56px;color:#fff;margin:6px 0">$${summary.score.toLocaleString()}</div>
         <div style="font-size:12px;color:var(--text-muted)">Run Seed: <code>${summary.seed}</code> • Time Survived: ${Math.round(summary.timeSurvived)}s</div>
       </div>
@@ -528,7 +572,7 @@ export function renderShiftOver(
       <div style="margin:10px 0;font-size:13px"><b>Powers Taken:</b> ${powersHtml}</div>
 
       <table class="raxi-table">
-        <thead><tr><th>Top Shifts</th><th>Score</th><th>Deliveries</th><th>Seed</th></tr></thead>
+        <thead><tr><th>Top Shifts</th><th>Map</th><th>Score</th><th>Deliveries</th><th>Seed</th></tr></thead>
         <tbody>${top5}</tbody>
       </table>
 

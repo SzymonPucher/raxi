@@ -18,6 +18,8 @@ export interface RoadEdge {
   roadType: RoadType;
   speedLimit: number; // m/s
   width: number; // total paved width in meters
+  sidewalkWidth?: number; // sidewalk/curb width per side in meters
+  name?: string; // optional real street name
   isShortcut?: boolean;
   isOneWay?: boolean;
   length: number;

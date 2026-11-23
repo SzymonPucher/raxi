@@ -34,7 +34,38 @@ import { ArcadeVehicle } from '../vehicle/ArcadeVehicle';
 import { VehicleStats } from '../vehicle/VehicleStats';
 import { VehicleVisual } from '../vehicle/VehicleVisual';
 import { CityBuildResult, buildCity } from '../world/CityBuilder';
-import { MapDefinition, createMapDefinition, getDistrictAt } from '../world/mapData';
+import { MapDefinition, getDistrictAt } from '../world/mapData';
+import { MapId, createMapById } from '../world/MapRegistry';
+
+function disposeObject3D(root: THREE.Object3D): void {
+  const geometries = new Set<THREE.BufferGeometry>();
+  const materials = new Set<THREE.Material>();
+  const textures = new Set<THREE.Texture>();
+
+  root.traverse((obj) => {
+    const mesh = obj as THREE.Mesh | THREE.LineSegments | THREE.Points;
+    if (mesh.geometry) {
+      geometries.add(mesh.geometry);
+    }
+    const mat = mesh.material;
+    if (Array.isArray(mat)) {
+      for (const m of mat) materials.add(m);
+    } else if (mat) {
+      materials.add(mat);
+    }
+  });
+
+  for (const m of materials) {
+    for (const val of Object.values(m)) {
+      if (val && typeof val === 'object' && 'isTexture' in val && (val as THREE.Texture).isTexture) {
+        textures.add(val as THREE.Texture);
+      }
+    }
+    m.dispose();
+  }
+  for (const tex of textures) tex.dispose();
+  for (const geo of geometries) geo.dispose();
+}
 
 /**
  * Top-level Raxi game engine & state machine (§3.1–3.2).
@@ -56,21 +87,24 @@ export class Game {
   private readonly sunLight: THREE.DirectionalLight;
   private readonly fog: THREE.Fog;
 
-  private readonly physics: PhysicsWorld;
-  private readonly map: MapDefinition;
-  private readonly city: CityBuildResult;
+  public activeMapId: MapId = 'raxi_city';
+
+  private physics!: PhysicsWorld;
+  private map!: MapDefinition;
+  private city!: CityBuildResult;
   private readonly input: InputManager;
   private readonly vehicleStats: VehicleStats;
-  public readonly vehicle: ArcadeVehicle;
-  private readonly vehicleVisual: VehicleVisual;
-  private readonly chaseCam: ChaseCamera;
+  public vehicle!: ArcadeVehicle;
+  private vehicleVisual!: VehicleVisual;
+  private chaseCam!: ChaseCamera;
   private readonly fx: EffectsManager;
-  private readonly lights: TrafficLights;
-  private readonly traffic: TrafficManager;
-  private readonly peds: PedestriansManager;
+  private lights!: TrafficLights;
+  private traffic!: TrafficManager;
+  private peds!: PedestriansManager;
   private readonly ui: UIManager;
-  private readonly debugPanel: DebugPanel;
+  private debugPanel!: DebugPanel;
   private readonly loop: Loop;
+  private worldLoaded = false;
 
   private rng = new Rng(1);
   private timeSec = 0;
@@ -130,47 +164,20 @@ export class Game {
     this.scene.add(this.sunLight);
     this.scene.add(this.sunLight.target);
 
-    // 2. World & Physics
-    this.physics = new PhysicsWorld();
-    this.map = createMapDefinition();
-    this.city = buildCity(this.map, this.physics);
-    this.scene.add(this.city.root);
-
-    // 3. Input, Vehicle, Camera, FX
+    // 2. Persistent Input, Vehicle Stats, FX, and UI Manager
     this.input = new InputManager(this.storage.bindings);
     this.vehicleStats = new VehicleStats(this.stats);
-    this.vehicle = new ArcadeVehicle(
-      this.physics,
-      this.vehicleStats,
-      this.map.heightMap,
-      new THREE.Vector3(0, 1.2, 65),
-      0
-    );
-    this.vehicleVisual = new VehicleVisual(this.vehicle);
-    this.scene.add(this.vehicleVisual.root);
-
-    this.chaseCam = new ChaseCamera(this.camera, this.physics);
-    this.chaseCam.snapToVehicle(this.vehicle);
-
     this.fx = new EffectsManager();
     this.scene.add(this.fx.group);
 
-    // 4. Traffic, Lights, Pedestrians, 3D Nav Arrow
-    this.lights = new TrafficLights(this.map);
-    this.scene.add(this.lights.group);
-
-    this.traffic = new TrafficManager(this.map, this.physics, this.lights);
-    this.scene.add(this.traffic.group);
-
-    this.peds = new PedestriansManager(this.map);
-    this.scene.add(this.peds.group);
-
-    // 5. UI Manager
     this.ui = new UIManager(uiRoot, {
       onNewShift: () => {
         this.audio.unlock();
         this.audio.playClick();
         this.startNewShift();
+      },
+      onSelectMap: (mapId) => {
+        this.selectMap(mapId);
       },
       onResume: () => {
         this.audio.playClick();
@@ -202,7 +209,7 @@ export class Game {
         if (this.state === 'Paused' && this.settingsReturnTo === 'pause') {
           this.ui.showPause();
         } else {
-          this.ui.showMainMenu(this.storage.stats);
+          this.ui.showMainMenu(this.storage.stats, this.activeMapId);
         }
       },
       onUpdateSettings: (patch) => {
@@ -240,42 +247,10 @@ export class Game {
       },
     });
 
-    // 6. Debug Panel (?debug)
-    this.debugPanel = new DebugPanel(
-      this.scene,
-      this.physics,
-      this.map,
-      this.vehicleStats.config,
-      {
-        addTime: (s) => this.grantTime(s, 'Debug'),
-        addCash: (n) => this.grantCash(n),
-        setCondition: (pct) => {
-          this.shift.condition.setCondition(pct);
-          this.vehicleStats.perfMult = this.shift.condition.performanceMult;
-        },
-        toggleBreak: () => this.handleBreakToggle(),
-        givePower: (id) => {
-          const res = this.powerManager.acquire(id, this.makePowerCtx());
-          if (res.ok) {
-            this.syncVehiclePowerFlags();
-            this.ui.hud.showPopup(`GIVEN: ${id.toUpperCase()}`, '#00e5ff');
-          }
-        },
-        spawnPassenger: (type) => this.debugSpawnPassenger(type),
-        teleportTo: (x, y, z) => {
-          this.vehicle.setPositionAndYaw(x, y, z, 0);
-          this.chaseCam.snapToVehicle(this.vehicle);
-        },
-        setTier: (t) => {
-          this.shift.difficulty.tier = t;
-          this.ui.hud.showPopup(`TIER SET TO ${t}`, '#ffcc00');
-        },
-        openDraft: () => this.openPowerDraft(),
-        startShiftWithSeed: (seed) => this.startNewShift(seed),
-      }
-    );
+    // 3. Build initial selected map world, physics, vehicle, traffic, peds, & debug panel
+    this.loadMap(this.storage.settings.selectedMap);
 
-    // 7. Apply saved graphics & audio settings
+    // 4. Apply saved graphics & audio settings
     this.applySettings(this.storage.settings);
 
     // 8. Wire window events (resize + F11 fullscreen + audio unlock)
@@ -306,6 +281,122 @@ export class Game {
 
     this.returnToMainMenu();
     this.loop.start();
+  }
+
+  private getMapSpawn(): { x: number; y: number; z: number; yaw: number } {
+    const s = this.map.spawn ?? { x: 0, z: 65, yaw: 0 };
+    const groundY = this.map.heightMap.sample(s.x, s.z);
+    return { x: s.x, y: groundY + 1.0, z: s.z, yaw: s.yaw };
+  }
+
+  public selectMap(mapId: MapId): void {
+    this.audio.unlock();
+    this.audio.playClick();
+    if (this.activeMapId !== mapId) {
+      this.storage.updateSettings({ selectedMap: mapId });
+      this.loadMap(mapId);
+    }
+    if (this.state === 'MainMenu') {
+      this.ui.showMainMenu(this.storage.stats, this.activeMapId, mapId);
+    }
+  }
+
+  public loadMap(mapId: MapId): void {
+    if (this.worldLoaded) {
+      this.scene.remove(this.city.root);
+      disposeObject3D(this.city.root);
+      for (const tex of Object.values(this.city.textures)) {
+        tex.dispose();
+      }
+
+      this.scene.remove(this.lights.group);
+      disposeObject3D(this.lights.group);
+
+      this.scene.remove(this.traffic.group);
+      disposeObject3D(this.traffic.group);
+
+      this.scene.remove(this.peds.group);
+      disposeObject3D(this.peds.group);
+
+      this.scene.remove(this.vehicleVisual.root);
+      disposeObject3D(this.vehicleVisual.root);
+
+      this.fx.clearSkids();
+      this.spawner.reset();
+      this.physics.dispose();
+    }
+
+    this.activeMapId = mapId;
+    this.physics = new PhysicsWorld();
+    this.map = createMapById(mapId);
+    this.city = buildCity(this.map, this.physics);
+    this.scene.add(this.city.root);
+
+    const spawn = this.getMapSpawn();
+    this.vehicle = new ArcadeVehicle(
+      this.physics,
+      this.vehicleStats,
+      this.map.heightMap,
+      new THREE.Vector3(spawn.x, spawn.y + 0.2, spawn.z),
+      spawn.yaw
+    );
+    this.vehicleVisual = new VehicleVisual(this.vehicle);
+    this.scene.add(this.vehicleVisual.root);
+
+    this.chaseCam = new ChaseCamera(this.camera, this.physics);
+    this.chaseCam.shakeEnabled = this.storage.settings.cameraShake;
+    this.chaseCam.snapToVehicle(this.vehicle);
+
+    this.lights = new TrafficLights(this.map);
+    this.scene.add(this.lights.group);
+
+    this.traffic = new TrafficManager(this.map, this.physics, this.lights);
+    this.scene.add(this.traffic.group);
+
+    this.peds = new PedestriansManager(this.map);
+    this.scene.add(this.peds.group);
+
+    if (this.debugPanel) {
+      this.debugPanel.rebuildForMap(this.physics, this.map);
+    } else {
+      this.debugPanel = new DebugPanel(
+        this.scene,
+        this.physics,
+        this.map,
+        this.vehicleStats.config,
+        {
+          addTime: (s) => this.grantTime(s, 'Debug'),
+          addCash: (n) => this.grantCash(n),
+          setCondition: (pct) => {
+            this.shift.condition.setCondition(pct);
+            this.vehicleStats.perfMult = this.shift.condition.performanceMult;
+          },
+          toggleBreak: () => this.handleBreakToggle(),
+          givePower: (id) => {
+            const res = this.powerManager.acquire(id, this.makePowerCtx());
+            if (res.ok) {
+              this.syncVehiclePowerFlags();
+              this.ui.hud.showPopup(`GIVEN: ${id.toUpperCase()}`, '#00e5ff');
+            }
+          },
+          spawnPassenger: (type) => this.debugSpawnPassenger(type),
+          teleportTo: (x, y, z) => {
+            this.vehicle.setPositionAndYaw(x, y, z, 0);
+            this.chaseCam.snapToVehicle(this.vehicle);
+          },
+          setTier: (t) => {
+            this.shift.difficulty.tier = t;
+            this.ui.hud.showPopup(`TIER SET TO ${t}`, '#ffcc00');
+          },
+          openDraft: () => this.openPowerDraft(),
+          startShiftWithSeed: (seed) => this.startNewShift(seed),
+        }
+      );
+    }
+
+    this.routeWaypoints = [];
+    this.routeRecomputeTimer = 0;
+    this.worldLoaded = true;
   }
 
   private onResize(): void {
@@ -360,7 +451,7 @@ export class Game {
     } else if (next === 'Paused') {
       this.ui.showPause();
     } else if (next === 'MainMenu') {
-      this.ui.showMainMenu(this.storage.stats);
+      this.ui.showMainMenu(this.storage.stats, this.activeMapId);
     }
 
     // Music state
@@ -410,15 +501,16 @@ export class Game {
     this.vehicleStats.rainGripMult = 1.0;
     this.syncVehiclePowerFlags();
 
-    // Spawn taxi facing north on Central Avenue in front of Raxi Tower!
-    this.vehicle.setPositionAndYaw(0, 1.0, 65, 0);
+    // Spawn taxi at active map's starting road position
+    const spawn = this.getMapSpawn();
+    this.vehicle.setPositionAndYaw(spawn.x, spawn.y, spawn.z, spawn.yaw);
     this.chaseCam.snapToVehicle(this.vehicle);
 
     // Spawn initial batch of waiting passengers around downtown
     this.spawner.update({
       dt: 0,
-      playerX: 0,
-      playerZ: 65,
+      playerX: spawn.x,
+      playerZ: spawn.z,
       tier: 0,
       map: this.map,
       rng: this.rng,
@@ -965,9 +1057,13 @@ export class Game {
     }
 
     // Residential excessive speeding safety penalty (§9.5)
+    const currentDistrict =
+      this.activeMapId === 'raxi_city'
+        ? getDistrictAt(this.vehicle.currPosition.x, this.vehicle.currPosition.z)
+        : proj?.aheadNode.district;
     if (
       proj &&
-      getDistrictAt(this.vehicle.currPosition.x, this.vehicle.currPosition.z) === 'residential' &&
+      currentDistrict === 'residential' &&
       this.vehicle.speed > proj.edge.speedLimit * BALANCE.safetyResidentialSpeedLimitMult
     ) {
       const pen = this.shift.safety.recordResidentialSpeeding(dt);
@@ -1611,6 +1707,7 @@ export class Game {
       deliveries: summary.deliveries,
       seed: summary.seed,
       timeSurvived: summary.timeSurvived,
+      mapId: this.activeMapId,
     });
 
     this.events.emit('shift:end', {
@@ -1620,7 +1717,7 @@ export class Game {
     });
 
     this.setState('ShiftOver');
-    this.ui.showShiftOver(summary, isNewBest, this.storage.highScores);
+    this.ui.showShiftOver(summary, isNewBest, this.storage.highScores, this.activeMapId);
   }
 
   private debugSpawnPassenger(type: PassengerTypeId): void {
@@ -1651,19 +1748,38 @@ export class Game {
     this.vehicleVisual.update(inWorld ? alpha : 1, realDt);
 
     // Camera
+    let lightFocusX = this.vehicle.currPosition.x;
+    let lightFocusY = this.vehicle.currPosition.y;
+    let lightFocusZ = this.vehicle.currPosition.z;
+
     if (this.state === 'MainMenu') {
-      // Scenic slow orbit around downtown Raxi Tower on title screen!
       const ang = this.timeSec * 0.14;
-      this.camera.position.set(Math.sin(ang) * 140 + 25, 65, Math.cos(ang) * 140 + 45);
-      this.camera.lookAt(20, 28, 45);
+      if (this.activeMapId === 'mikolow') {
+        // Scenic slow orbit framing Mikołów's Rynek & Bazylika św. Wojciecha
+        const rynek = this.map.landmarks.find(
+          (l) => l.style === 'townhall' || l.id.includes('rynek')
+        );
+        const cx = rynek ? rynek.x : 0;
+        const cz = rynek ? rynek.z : 0;
+        const cy = this.map.heightMap.sample(cx, cz);
+        this.camera.position.set(cx + Math.sin(ang) * 145, cy + 56, cz + Math.cos(ang) * 145);
+        this.camera.lookAt(cx, cy + 16, cz);
+        lightFocusX = cx;
+        lightFocusY = cy;
+        lightFocusZ = cz;
+      } else {
+        // Scenic slow orbit around downtown Raxi Tower on title screen!
+        this.camera.position.set(Math.sin(ang) * 140 + 25, 65, Math.cos(ang) * 140 + 45);
+        this.camera.lookAt(20, 28, 45);
+      }
     } else {
       this.chaseCam.update(this.vehicle, inWorld ? alpha : 1, realDt, this.input.state.lookBack);
     }
 
-    // Shadow map follows player (§6.3)
+    // Shadow map follows player (§6.3) or scenic focal point on Main Menu
     const vp = this.vehicle.currPosition;
-    this.sunLight.position.set(vp.x + 110, vp.y + 185, vp.z + 80);
-    this.sunLight.target.position.set(vp.x, vp.y, vp.z);
+    this.sunLight.position.set(lightFocusX + 110, lightFocusY + 185, lightFocusZ + 80);
+    this.sunLight.target.position.set(lightFocusX, lightFocusY, lightFocusZ);
     this.sunLight.target.updateMatrixWorld();
 
     // Spatial chunk culling

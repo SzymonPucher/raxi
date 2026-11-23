@@ -591,6 +591,10 @@ body {
   padding: 20px;
   animation: fadeIn 0.2s ease-out;
 }
+.screen-overlay.menu-backdrop {
+  background: rgba(8, 12, 18, 0.42);
+  backdrop-filter: blur(2px);
+}
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -611,6 +615,103 @@ body {
 .screen-panel.narrow {
   max-width: 480px;
   text-align: center;
+}
+.screen-panel.main-menu-panel {
+  max-width: 560px;
+  background: linear-gradient(180deg, rgba(23, 29, 39, 0.92) 0%, rgba(16, 21, 29, 0.94) 100%);
+}
+
+/* Map Selector (Main Menu) */
+.map-selector-section {
+  margin: 12px 0 14px;
+  text-align: left;
+}
+.map-selector-label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1.6px;
+  color: var(--taxi-yellow);
+  margin-bottom: 7px;
+  text-transform: uppercase;
+  text-align: center;
+}
+.map-selector-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.map-card {
+  background: rgba(29, 38, 52, 0.9);
+  color: var(--text-main);
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-radius: 11px;
+  padding: 11px 12px;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: transform 0.12s, border-color 0.14s, background 0.14s, box-shadow 0.14s;
+}
+.map-card:hover,
+.map-card.focused {
+  border-color: #fff;
+  background: rgba(42, 54, 74, 0.96);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  outline: none;
+}
+.map-card.active {
+  border-color: var(--taxi-yellow);
+  background: linear-gradient(180deg, rgba(66, 55, 22, 0.92) 0%, rgba(28, 30, 38, 0.95) 100%);
+  box-shadow: 0 0 18px rgba(255, 204, 0, 0.32);
+}
+.map-card.active.focused {
+  border-color: #fff;
+  box-shadow: 0 0 22px rgba(255, 204, 0, 0.55);
+}
+.map-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.map-card-title {
+  font-family: var(--font-display);
+  font-size: 16px;
+  letter-spacing: 0.4px;
+  color: #fff;
+}
+.map-card.active .map-card-title {
+  color: var(--taxi-yellow);
+}
+.map-card-badge {
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.8px;
+  padding: 2px 6px;
+  border-radius: 99px;
+  background: var(--taxi-yellow);
+  color: #111;
+  flex-shrink: 0;
+}
+.map-card-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+.map-card.active .map-card-sub {
+  color: #e6ecf2;
+}
+.map-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 99px;
+  background: rgba(255, 204, 0, 0.14);
+  border: 1px solid rgba(255, 204, 0, 0.45);
+  color: var(--taxi-yellow);
+  font-weight: 700;
+  font-size: 12px;
 }
 
 .raxi-logo {

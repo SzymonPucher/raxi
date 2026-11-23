@@ -7,6 +7,7 @@ import { PowerManager } from '../powers/PowerManager';
 import { PowerDef } from '../powers/PowerTypes';
 import { GameSettings, HighScoreEntry, PersistentStats } from '../save/Storage';
 import { Shop } from '../shop/Shop';
+import { MapId } from '../world/MapRegistry';
 import { HUD } from './hud/HUD';
 import {
   ScreenCallbacks,
@@ -55,22 +56,33 @@ export class UIManager {
   hideScreen(): void {
     this.activeScreen = 'none';
     this.screenOverlay.style.display = 'none';
+    this.screenOverlay.classList.remove('menu-backdrop');
     this.screenOverlay.innerHTML = '';
     this.focusables = [];
     this.focusIdx = 0;
   }
 
-  private mountScreen(name: ActiveScreen, focusables: HTMLElement[]): void {
+  private mountScreen(name: ActiveScreen, focusables: HTMLElement[], initialFocusIdx = 0): void {
     this.activeScreen = name;
     this.screenOverlay.style.display = 'flex';
+    this.screenOverlay.classList.toggle('menu-backdrop', name === 'main');
     this.focusables = focusables.filter((el) => !(el as HTMLButtonElement).disabled);
-    this.focusIdx = 0;
+    this.focusIdx =
+      this.focusables.length > 0
+        ? Math.max(0, Math.min(this.focusables.length - 1, initialFocusIdx))
+        : 0;
     this.applyFocusVisual();
   }
 
-  showMainMenu(stats: PersistentStats): void {
+  showMainMenu(stats: PersistentStats, selectedMap: MapId, focusMapId?: MapId): void {
     this.hud.setVisible(false);
-    this.mountScreen('main', renderMainMenu(this.screenOverlay, stats, this.callbacks));
+    const focusables = renderMainMenu(this.screenOverlay, stats, selectedMap, this.callbacks);
+    let initialIdx = focusables.findIndex((el) => el.dataset.act === 'new');
+    if (focusMapId) {
+      const cardIdx = focusables.findIndex((el) => el.dataset.mapId === focusMapId);
+      if (cardIdx >= 0) initialIdx = cardIdx;
+    }
+    this.mountScreen('main', focusables, initialIdx >= 0 ? initialIdx : 0);
   }
 
   showPause(): void {
@@ -128,12 +140,13 @@ export class UIManager {
   showShiftOver(
     summary: ShiftSummary,
     isNewBest: boolean,
-    highScores: readonly HighScoreEntry[]
+    highScores: readonly HighScoreEntry[],
+    activeMapId: MapId
   ): void {
     this.hud.setVisible(false);
     this.mountScreen(
       'shiftOver',
-      renderShiftOver(this.screenOverlay, summary, isNewBest, highScores, this.callbacks)
+      renderShiftOver(this.screenOverlay, summary, isNewBest, highScores, activeMapId, this.callbacks)
     );
   }
 
