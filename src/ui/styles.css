@@ -1150,6 +1150,12 @@ body {
 }
 
 @media (max-width: 900px), (pointer: coarse) {
+  .hud-top-center {
+    top: 56px;
+  }
+  .hud-top-right {
+    top: 56px;
+  }
   .hud-controls-hint {
     display: none !important;
   }

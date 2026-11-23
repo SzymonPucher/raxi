@@ -292,7 +292,8 @@ describe('Mikołów, Poland MapDefinition', () => {
     expect(rbEdges.length).toBeGreaterThan(20);
 
     const rbIds = new Set(rbEdges.map((e) => e.roundaboutId).filter(Boolean));
-    expect(rbIds.size).toBe(8);
+    expect(rbIds.size).toBe(9);
+    expect(rbIds.has('rb_stolarska_13')).toBe(true);
 
     for (const e of rbEdges) {
       expect(e.isOneWay).toBe(true);
@@ -338,6 +339,17 @@ describe('Mikołów, Poland MapDefinition', () => {
     expect(fences.length).toBeGreaterThan(2000);
     expect(fences.some((f) => f.points[0][0] < -1165)).toBe(true);
     expect(fences.some((f) => f.points[0][0] > 720)).toBe(true);
+
+    // Zero fences cross road asphalt
+    for (const f of fences) {
+      const [p0, p1] = f.points;
+      const mx = (p0[0] + p1[0]) * 0.5;
+      const mz = (p0[1] + p1[1]) * 0.5;
+      const proj = graph.projectPoint(mx, mz, 0, -1, 10);
+      if (proj && !proj.edge.isShortcut) {
+        expect(proj.distFromCenter).toBeGreaterThanOrEqual(proj.halfWidth);
+      }
+    }
   });
 
   it('resolves street and landmark names near Mikołów landmarks', () => {

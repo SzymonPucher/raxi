@@ -6777,11 +6777,11 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1165.5,
-        -27.6
+        -1168,
+        -27.5
       ],
       [
-        -1193.6,
+        -1192.8,
         -26.7
       ]
     ],
@@ -6793,12 +6793,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1201.3,
+        -1202.2,
         -26.4
       ],
       [
-        -1229.5,
-        -25.5
+        -1227,
+        -25.6
       ]
     ],
     "style": "wire_mesh",
@@ -6809,11 +6809,11 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1165.9,
-        -40.6
+        -1168.4,
+        -40.5
       ],
       [
-        -1194.1,
+        -1193.2,
         -39.7
       ]
     ],
@@ -6825,12 +6825,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1201.8,
+        -1202.6,
         -39.4
       ],
       [
-        -1229.9,
-        -38.5
+        -1227.4,
+        -38.6
       ]
     ],
     "style": "wood_picket",
@@ -6841,12 +6841,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1277.8,
-        -239.2
+        -1282.2,
+        -218.2
       ],
       [
-        -1281.2,
-        -222.9
+        -1285,
+        -204.7
       ]
     ],
     "style": "wood_picket",
@@ -6857,12 +6857,27 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1282.1,
-        -218.5
+        -1294.9,
+        -220.8
       ],
       [
-        -1285.5,
-        -202.2
+        -1297.7,
+        -207.4
+      ]
+    ],
+    "style": "hedge",
+    "height": 1.75,
+    "color": 3431977
+  },
+  {
+    "points": [
+      [
+        -1273.5,
+        -175
+      ],
+      [
+        -1264.6,
+        -163.4
       ]
     ],
     "style": "wood_picket",
@@ -6873,12 +6888,28 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1290.5,
-        -241.9
+        -1261.2,
+        -159
       ],
       [
-        -1293.9,
-        -225.6
+        -1252.3,
+        -147.3
+      ]
+    ],
+    "style": "wood_picket",
+    "height": 1.35,
+    "color": 8146736,
+    "postColor": 6438180
+  },
+  {
+    "points": [
+      [
+        -1283.1,
+        -167.7
+      ],
+      [
+        -1274.2,
+        -156
       ]
     ],
     "style": "hedge",
@@ -6888,12 +6919,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1294.8,
-        -221.2
+        -1270.8,
+        -151.6
       ],
       [
-        -1298.2,
-        -204.9
+        -1261.9,
+        -140
       ]
     ],
     "style": "hedge",
@@ -6903,12 +6934,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1284.5,
-        -197.2
+        -1243.2,
+        -132.2
       ],
       [
-        -1269.3,
-        -174.5
+        -1236.9,
+        -115.7
       ]
     ],
     "style": "hedge",
@@ -6918,12 +6949,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1265.1,
-        -168.3
+        -1234.4,
+        -109.5
       ],
       [
-        -1249.9,
-        -145.5
+        -1228,
+        -93
       ]
     ],
     "style": "hedge",
@@ -6933,12 +6964,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1295.3,
-        -190
+        -1255.4,
+        -127.5
       ],
       [
-        -1280.1,
-        -167.2
+        -1249,
+        -111
       ]
     ],
     "style": "metal_palisade",
@@ -6949,12 +6980,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1275.9,
-        -161
+        -1246.5,
+        -104.8
       ],
       [
-        -1260.7,
-        -138.3
+        -1240.2,
+        -88.3
       ]
     ],
     "style": "metal_palisade",
@@ -6965,92 +6996,44 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1244.2,
-        -134.5
-      ],
-      [
-        -1236.7,
-        -115.2
-      ]
-    ],
-    "style": "metal_palisade",
-    "height": 1.45,
-    "color": 6044200,
-    "postColor": 9059627
-  },
-  {
-    "points": [
-      [
-        -1234.6,
-        -110
-      ],
-      [
-        -1227.1,
-        -90.7
-      ]
-    ],
-    "style": "metal_palisade",
-    "height": 1.45,
-    "color": 6044200,
-    "postColor": 9059627
-  },
-  {
-    "points": [
-      [
-        -1256.3,
-        -129.8
-      ],
-      [
-        -1248.8,
-        -110.5
-      ]
-    ],
-    "style": "wire_mesh",
-    "height": 1.2,
-    "color": 3035701,
-    "postColor": 3497533
-  },
-  {
-    "points": [
-      [
-        -1246.7,
-        -105.3
-      ],
-      [
-        -1239.2,
-        -86
-      ]
-    ],
-    "style": "wire_mesh",
-    "height": 1.2,
-    "color": 3035701,
-    "postColor": 3497533
-  },
-  {
-    "points": [
-      [
-        -1225.1,
-        -77.2
+        -1225.3,
+        -74.7
       ],
       [
         -1226.5,
-        -59.4
+        -59.8
       ]
     ],
-    "style": "wire_mesh",
-    "height": 1.2,
-    "color": 3035701,
-    "postColor": 3497533
+    "style": "metal_palisade",
+    "height": 1.45,
+    "color": 6044200,
+    "postColor": 9059627
   },
   {
     "points": [
       [
         -1226.9,
-        -54.6
+        -54.2
       ],
       [
-        -1228.3,
-        -36.8
+        -1228.1,
+        -39.3
+      ]
+    ],
+    "style": "metal_palisade",
+    "height": 1.45,
+    "color": 6044200,
+    "postColor": 9059627
+  },
+  {
+    "points": [
+      [
+        -1238.3,
+        -75.7
+      ],
+      [
+        -1239.5,
+        -60.8
       ]
     ],
     "style": "wire_mesh",
@@ -7061,28 +7044,60 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1238.1,
-        -78.2
-      ],
-      [
-        -1239.5,
-        -60.4
-      ]
-    ],
-    "style": "wood_picket",
-    "height": 1.35,
-    "color": 8146736,
-    "postColor": 6438180
-  },
-  {
-    "points": [
-      [
         -1239.9,
-        -55.6
+        -55.2
       ],
       [
-        -1241.3,
-        -37.8
+        -1241.1,
+        -40.3
+      ]
+    ],
+    "style": "wire_mesh",
+    "height": 1.2,
+    "color": 3035701,
+    "postColor": 3497533
+  },
+  {
+    "points": [
+      [
+        -1291.9,
+        -168.5
+      ],
+      [
+        -1293.9,
+        -148.7
+      ]
+    ],
+    "style": "wire_mesh",
+    "height": 1.2,
+    "color": 3035701,
+    "postColor": 3497533
+  },
+  {
+    "points": [
+      [
+        -1294.6,
+        -141.2
+      ],
+      [
+        -1296.5,
+        -121.4
+      ]
+    ],
+    "style": "wire_mesh",
+    "height": 1.2,
+    "color": 3035701,
+    "postColor": 3497533
+  },
+  {
+    "points": [
+      [
+        -1304,
+        -169.6
+      ],
+      [
+        -1305.9,
+        -149.8
       ]
     ],
     "style": "wood_picket",
@@ -7093,12 +7108,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1287.2,
-        -192
+        -1306.6,
+        -142.3
       ],
       [
-        -1291.2,
-        -159.7
+        -1308.6,
+        -122.5
       ]
     ],
     "style": "wood_picket",
@@ -7109,12 +7124,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1292.2,
-        -150.9
+        -1305.2,
+        -172.3
       ],
       [
-        -1296.2,
-        -118.7
+        -1320,
+        -172.3
       ]
     ],
     "style": "wood_picket",
@@ -7125,12 +7140,28 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1300.1,
-        -193.5
+        -1325.7,
+        -172.3
       ],
       [
-        -1304.1,
-        -161.3
+        -1340.5,
+        -172.3
+      ]
+    ],
+    "style": "wood_picket",
+    "height": 1.35,
+    "color": 8146736,
+    "postColor": 6438180
+  },
+  {
+    "points": [
+      [
+        -1305.2,
+        -181.7
+      ],
+      [
+        -1320,
+        -181.7
       ]
     ],
     "style": "hedge",
@@ -7140,12 +7171,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1305.1,
-        -152.5
+        -1325.7,
+        -181.7
       ],
       [
-        -1309.1,
-        -120.2
+        -1340.5,
+        -181.7
       ]
     ],
     "style": "hedge",
@@ -7155,12 +7186,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1297,
-        -108.3
+        -1297.1,
+        -105.8
       ],
       [
         -1298.2,
-        -77.9
+        -78.9
       ]
     ],
     "style": "hedge",
@@ -7170,12 +7201,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1298.5,
-        -69.7
+        -1298.6,
+        -68.7
       ],
       [
-        -1299.7,
-        -39.3
+        -1299.6,
+        -41.8
       ]
     ],
     "style": "hedge",
@@ -7185,12 +7216,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1310,
-        -108.8
+        -1310.1,
+        -106.3
       ],
       [
-        -1311.2,
-        -78.4
+        -1311.1,
+        -79.4
       ]
     ],
     "style": "metal_palisade",
@@ -7202,11 +7233,11 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
     "points": [
       [
         -1311.5,
-        -70.2
+        -69.2
       ],
       [
-        -1312.7,
-        -39.8
+        -1312.6,
+        -42.3
       ]
     ],
     "style": "metal_palisade",
@@ -7217,11 +7248,11 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1240.9,
-        -25.5
+        -1243.4,
+        -25.6
       ],
       [
-        -1267.4,
+        -1266.6,
         -26.3
       ]
     ],
@@ -7233,12 +7264,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1274.6,
+        -1275.4,
         -26.6
       ],
       [
-        -1301.1,
-        -27.4
+        -1298.6,
+        -27.3
       ]
     ],
     "style": "metal_palisade",
@@ -7249,11 +7280,11 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1240.5,
-        -38.5
+        -1243,
+        -38.6
       ],
       [
-        -1267,
+        -1266.2,
         -39.3
       ]
     ],
@@ -7265,12 +7296,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1274.2,
+        -1275,
         -39.6
       ],
       [
-        -1300.7,
-        -40.4
+        -1298.2,
+        -40.3
       ]
     ],
     "style": "wire_mesh",
@@ -7281,12 +7312,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1310.8,
-        -26.8
+        -1313.3,
+        -26.4
       ],
       [
-        -1336.3,
-        -22.9
+        -1335.5,
+        -23
       ]
     ],
     "style": "wire_mesh",
@@ -7297,12 +7328,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1343.2,
-        -21.8
+        -1344,
+        -21.7
       ],
       [
-        -1368.7,
-        -17.8
+        -1366.2,
+        -18.2
       ]
     ],
     "style": "wire_mesh",
@@ -7313,12 +7344,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1312.8,
-        -39.7
+        -1315.3,
+        -39.3
       ],
       [
-        -1338.3,
-        -35.7
+        -1337.5,
+        -35.8
       ]
     ],
     "style": "wood_picket",
@@ -7329,12 +7360,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1345.2,
-        -34.6
+        -1346,
+        -34.5
       ],
       [
-        -1370.7,
-        -30.7
+        -1368.2,
+        -31.1
       ]
     ],
     "style": "wood_picket",
@@ -7345,11 +7376,11 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1380.7,
-        -17
+        -1383.2,
+        -17.1
       ],
       [
-        -1407.7,
+        -1406.9,
         -17.5
       ]
     ],
@@ -7361,12 +7392,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1415.1,
+        -1415.9,
         -17.7
       ],
       [
-        -1442,
-        -18.2
+        -1439.5,
+        -18.1
       ]
     ],
     "style": "wood_picket",
@@ -7377,11 +7408,11 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1380.5,
-        -30
+        -1383,
+        -30.1
       ],
       [
-        -1407.4,
+        -1406.6,
         -30.5
       ]
     ],
@@ -7392,12 +7423,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1414.8,
+        -1415.6,
         -30.7
       ],
       [
-        -1441.8,
-        -31.2
+        -1439.3,
+        -31.1
       ]
     ],
     "style": "hedge",
@@ -7407,12 +7438,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1453.5,
-        -30.8
+        -1453.3,
+        -33.3
       ],
       [
-        -1452.5,
-        -44.5
+        -1451.4,
+        -59.5
       ]
     ],
     "style": "hedge",
@@ -7422,27 +7453,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1452.2,
-        -48.2
+        -1440.3,
+        -32.3
       ],
       [
-        -1451.2,
-        -62
-      ]
-    ],
-    "style": "hedge",
-    "height": 1.75,
-    "color": 3431977
-  },
-  {
-    "points": [
-      [
-        -1440.5,
-        -29.8
-      ],
-      [
-        -1439.5,
-        -43.6
+        -1438.4,
+        -58.5
       ]
     ],
     "style": "metal_palisade",
@@ -7453,12 +7469,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1439.2,
-        -47.3
+        -1443.8,
+        -77.3
       ],
       [
-        -1438.2,
-        -61
+        -1432.1,
+        -90.5
       ]
     ],
     "style": "metal_palisade",
@@ -7469,12 +7485,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1445.5,
-        -75.4
+        -1427.6,
+        -95.5
       ],
       [
-        -1431.7,
-        -90.9
+        -1415.9,
+        -108.7
       ]
     ],
     "style": "metal_palisade",
@@ -7485,28 +7501,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1428,
-        -95.1
+        -1434.1,
+        -68.7
       ],
       [
-        -1414.2,
-        -110.6
-      ]
-    ],
-    "style": "metal_palisade",
-    "height": 1.45,
-    "color": 6044200,
-    "postColor": 9059627
-  },
-  {
-    "points": [
-      [
-        -1435.8,
-        -66.8
-      ],
-      [
-        -1422,
-        -82.3
+        -1422.4,
+        -81.9
       ]
     ],
     "style": "wire_mesh",
@@ -7517,12 +7517,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1418.3,
-        -86.5
+        -1417.9,
+        -86.9
       ],
       [
-        -1404.5,
-        -102
+        -1406.2,
+        -100.1
       ]
     ],
     "style": "wire_mesh",
@@ -7533,12 +7533,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1401.2,
-        -117.6
+        -1398.7,
+        -118
       ],
       [
-        -1383.7,
-        -120.2
+        -1384.1,
+        -120.1
       ]
     ],
     "style": "wire_mesh",
@@ -7549,12 +7549,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1378.9,
+        -1378.5,
         -120.9
       ],
       [
-        -1361.4,
-        -123.4
+        -1363.9,
+        -123.1
       ]
     ],
     "style": "wire_mesh",
@@ -7565,11 +7565,11 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1399.3,
-        -104.8
+        -1396.8,
+        -105.1
       ],
       [
-        -1381.8,
+        -1382.2,
         -107.3
       ]
     ],
@@ -7581,12 +7581,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1377,
-        -108
+        -1376.6,
+        -108.1
       ],
       [
-        -1359.5,
-        -110.6
+        -1362,
+        -110.2
       ]
     ],
     "style": "wood_picket",
@@ -7597,11 +7597,11 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1349,
-        -123.9
+        -1346.5,
+        -123.7
       ],
       [
-        -1331.1,
+        -1331.5,
         -122.6
       ]
     ],
@@ -7613,12 +7613,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1326.2,
+        -1325.8,
         -122.2
       ],
       [
-        -1308.3,
-        -120.9
+        -1310.8,
+        -121.1
       ]
     ],
     "style": "wood_picket",
@@ -7629,11 +7629,11 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1350,
-        -110.9
+        -1347.5,
+        -110.7
       ],
       [
-        -1332.1,
+        -1332.5,
         -109.6
       ]
     ],
@@ -7644,12 +7644,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1327.2,
+        -1326.8,
         -109.2
       ],
       [
-        -1309.3,
-        -107.9
+        -1311.8,
+        -108.1
       ]
     ],
     "style": "hedge",
@@ -7659,12 +7659,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1451.9,
-        -17.6
+        -1454.4,
+        -17.2
       ],
       [
-        -1477.1,
-        -14
+        -1476.4,
+        -14.2
       ]
     ],
     "style": "hedge",
@@ -7674,12 +7674,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1484,
-        -13.1
+        -1484.7,
+        -13
       ],
       [
-        -1509.1,
-        -9.5
+        -1506.7,
+        -9.9
       ]
     ],
     "style": "hedge",
@@ -7689,12 +7689,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1453.8,
-        -30.5
+        -1456.2,
+        -30.1
       ],
       [
-        -1478.9,
-        -26.9
+        -1478.2,
+        -27
       ]
     ],
     "style": "metal_palisade",
@@ -7705,12 +7705,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1485.8,
-        -26
+        -1486.5,
+        -25.8
       ],
       [
-        -1511,
-        -22.4
+        -1508.5,
+        -22.8
       ]
     ],
     "style": "metal_palisade",
@@ -7721,12 +7721,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1523.9,
-        -16.5
+        -1525.2,
+        -18.7
       ],
       [
-        -1533.3,
-        -32
+        -1533.1,
+        -31.6
       ]
     ],
     "style": "metal_palisade",
@@ -7737,12 +7737,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1535.8,
-        -36.2
+        -1536.1,
+        -36.5
       ],
       [
-        -1545.2,
-        -51.6
+        -1543.9,
+        -49.5
       ]
     ],
     "style": "metal_palisade",
@@ -7753,12 +7753,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1512.8,
-        -23.3
+        -1514.1,
+        -25.4
       ],
       [
-        -1522.2,
-        -38.7
+        -1521.9,
+        -38.4
       ]
     ],
     "style": "wire_mesh",
@@ -7769,12 +7769,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1524.7,
-        -42.9
+        -1524.9,
+        -43.3
       ],
       [
-        -1534.1,
-        -58.4
+        -1532.8,
+        -56.2
       ]
     ],
     "style": "wire_mesh",
@@ -7785,12 +7785,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1550.3,
-        -63.2
+        -1551,
+        -65.6
       ],
       [
-        -1556.2,
-        -84
+        -1556.1,
+        -83.4
       ]
     ],
     "style": "wire_mesh",
@@ -7801,12 +7801,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1557.9,
-        -89.6
+        -1558,
+        -90.2
       ],
       [
-        -1563.8,
-        -110.4
+        -1563.1,
+        -108
       ]
     ],
     "style": "wire_mesh",
@@ -7817,12 +7817,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1537.8,
-        -66.8
+        -1538.5,
+        -69.2
       ],
       [
-        -1543.7,
-        -87.6
+        -1543.6,
+        -87
       ]
     ],
     "style": "wood_picket",
@@ -7833,12 +7833,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        -1545.4,
-        -93.2
+        -1545.5,
+        -93.8
       ],
       [
-        -1551.3,
-        -114
+        -1550.6,
+        -111.6
       ]
     ],
     "style": "wood_picket",
@@ -7849,12 +7849,91 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        753.6,
+        -1328.8,
+        -172.4
+      ],
+      [
+        -1317.5,
+        -172.4
+      ]
+    ],
+    "style": "metal_palisade",
+    "height": 1.35,
+    "color": 3290683,
+    "postColor": 5922403
+  },
+  {
+    "points": [
+      [
+        -1313.5,
+        -172.4
+      ],
+      [
+        -1308.8,
+        -172.4
+      ]
+    ],
+    "style": "metal_palisade",
+    "height": 1.35,
+    "color": 3290683,
+    "postColor": 5922403
+  },
+  {
+    "points": [
+      [
+        -1328.8,
+        -172.4
+      ],
+      [
+        -1328.8,
+        -152.2
+      ]
+    ],
+    "style": "wire_mesh",
+    "height": 1.3,
+    "color": 3035701,
+    "postColor": 3497533
+  },
+  {
+    "points": [
+      [
+        -1328.8,
+        -152.2
+      ],
+      [
+        -1308.8,
+        -152.2
+      ]
+    ],
+    "style": "hedge",
+    "height": 1.45,
+    "color": 3431977
+  },
+  {
+    "points": [
+      [
+        -1308.8,
+        -152.2
+      ],
+      [
+        -1308.8,
+        -165.5
+      ]
+    ],
+    "style": "metal_palisade",
+    "height": 1.35,
+    "color": 3290683,
+    "postColor": 5922403
+  },
+  {
+    "points": [
+      [
+        754.1,
         248.5
       ],
       [
-        794.6,
-        253.9
+        792.8,
+        253.7
       ]
     ],
     "style": "metal_palisade",
@@ -7865,12 +7944,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        805.8,
-        255.4
+        807.5,
+        255.6
       ],
       [
-        846.7,
-        260.8
+        846.2,
+        260.7
       ]
     ],
     "style": "metal_palisade",
@@ -7881,12 +7960,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        752.5,
-        257.2
+        753,
+        257.3
       ],
       [
-        793.4,
-        262.6
+        791.7,
+        262.4
       ]
     ],
     "style": "metal_palisade",
@@ -7897,11 +7976,11 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        804.6,
-        264.1
+        806.4,
+        264.3
       ],
       [
-        845.6,
+        845.1,
         269.5
       ]
     ],
@@ -7913,43 +7992,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        856.3,
-        264.6
+        867.7,
+        274.3
       ],
       [
-        862.3,
-        271.4
-      ]
-    ],
-    "style": "wood_picket",
-    "height": 1.45,
-    "color": 8014636,
-    "postColor": 9256492
-  },
-  {
-    "points": [
-      [
-        849.7,
-        270.4
-      ],
-      [
-        855.7,
-        277.2
-      ]
-    ],
-    "style": "hedge",
-    "height": 1.65,
-    "color": 2970664
-  },
-  {
-    "points": [
-      [
-        866.7,
-        273.9
-      ],
-      [
-        885.9,
-        282.3
+        884.9,
+        281.9
       ]
     ],
     "style": "wire_mesh",
@@ -7960,12 +8008,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        863.1,
-        281.9
+        864.1,
+        282.3
       ],
       [
-        882.3,
-        290.3
+        881.3,
+        289.9
       ]
     ],
     "style": "metal_palisade",
@@ -7976,11 +8024,11 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        893.9,
-        284.3
+        894.9,
+        284.4
       ],
       [
-        915.2,
+        914.2,
         285.8
       ]
     ],
@@ -7992,12 +8040,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        893.3,
+        894.3,
         293.1
       ],
       [
-        914.6,
-        294.6
+        913.6,
+        294.5
       ]
     ],
     "style": "hedge",
@@ -8007,44 +8055,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        919.9,
-        285.7
-      ],
-      [
-        928,
-        282
-      ]
-    ],
-    "style": "wood_picket",
-    "height": 1.45,
-    "color": 8014636,
-    "postColor": 9256492
-  },
-  {
-    "points": [
-      [
-        923.6,
-        293.7
-      ],
-      [
-        931.7,
-        290
-      ]
-    ],
-    "style": "metal_palisade",
-    "height": 1.35,
-    "color": 3027512,
-    "postColor": 9256492
-  },
-  {
-    "points": [
-      [
         946.9,
-        293
+        293.5
       ],
       [
         948.3,
-        306.3
+        305.8
       ]
     ],
     "style": "metal_palisade",
@@ -8055,12 +8071,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        948.7,
-        309.9
+        948.8,
+        310.5
       ],
       [
-        950.2,
-        323.3
+        950.1,
+        322.8
       ]
     ],
     "style": "metal_palisade",
@@ -8071,12 +8087,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        938.1,
-        293.9
+        938.2,
+        294.4
       ],
       [
-        939.6,
-        307.3
+        939.5,
+        306.7
       ]
     ],
     "style": "metal_palisade",
@@ -8088,11 +8104,11 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
     "points": [
       [
         940,
-        310.9
+        311.4
       ],
       [
         941.4,
-        324.2
+        323.7
       ]
     ],
     "style": "metal_palisade",
@@ -8104,11 +8120,11 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
     "points": [
       [
         951,
-        334.6
+        335.1
       ],
       [
         951.6,
-        359.4
+        358.9
       ]
     ],
     "style": "wood_picket",
@@ -8120,11 +8136,11 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
     "points": [
       [
         942.2,
-        334.8
+        335.3
       ],
       [
         942.8,
-        359.6
+        359.1
       ]
     ],
     "style": "hedge",
@@ -8134,11 +8150,11 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        941.9,
+        941.4,
         369.4
       ],
       [
-        924.3,
+        925,
         369.4
       ]
     ],
@@ -8150,11 +8166,11 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        919.4,
+        918.7,
         369.4
       ],
       [
-        901.8,
+        902.3,
         369.4
       ]
     ],
@@ -8166,11 +8182,11 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        941.9,
+        941.4,
         360.6
       ],
       [
-        924.3,
+        925,
         360.6
       ]
     ],
@@ -8182,11 +8198,11 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        919.4,
+        918.7,
         360.6
       ],
       [
-        901.8,
+        902.3,
         360.6
       ]
     ],
@@ -8199,11 +8215,11 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
     "points": [
       [
         874.9,
-        197
+        197.5
       ],
       [
-        871.8,
-        217.6
+        872,
+        216.8
       ]
     ],
     "style": "metal_palisade",
@@ -8214,12 +8230,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        871,
-        223.3
+        870.8,
+        224.1
       ],
       [
         867.9,
-        243.9
+        243.4
       ]
     ],
     "style": "metal_palisade",
@@ -8231,11 +8247,11 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
     "points": [
       [
         866.2,
-        195.7
+        196.2
       ],
       [
-        863.1,
-        216.3
+        863.3,
+        215.5
       ]
     ],
     "style": "hedge",
@@ -8245,12 +8261,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        862.3,
-        222
+        862.1,
+        222.8
       ],
       [
         859.2,
-        242.6
+        242.1
       ]
     ],
     "style": "hedge",
@@ -8260,12 +8276,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        864.6,
-        253.8
+        864,
+        254.9
       ],
       [
-        857.1,
-        265.5
+        857.7,
+        264.5
       ]
     ],
     "style": "wood_picket",
@@ -8276,12 +8292,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        857.2,
-        249.1
+        856.6,
+        250.1
       ],
       [
-        849.7,
-        260.8
+        850.3,
+        259.7
       ]
     ],
     "style": "metal_palisade",
@@ -8292,12 +8308,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        799.1,
-        295.5
+        800.1,
+        295.7
       ],
       [
-        820,
-        299.7
+        819.1,
+        299.5
       ]
     ],
     "style": "wire_mesh",
@@ -8308,12 +8324,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        797.4,
-        304.1
+        798.3,
+        304.3
       ],
       [
-        818.3,
-        308.3
+        817.3,
+        308.1
       ]
     ],
     "style": "hedge",
@@ -8323,12 +8339,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        830.9,
-        303.1
+        831.3,
+        303.3
       ],
       [
-        844.9,
-        309
+        844.4,
+        308.8
       ]
     ],
     "style": "metal_palisade",
@@ -8339,12 +8355,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        848.8,
-        310.7
+        849.3,
+        310.9
       ],
       [
-        862.8,
-        316.6
+        862.4,
+        316.4
       ]
     ],
     "style": "metal_palisade",
@@ -8355,12 +8371,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        827.5,
-        311.2
+        827.9,
+        311.4
       ],
       [
-        841.5,
-        317.1
+        841,
+        316.9
       ]
     ],
     "style": "metal_palisade",
@@ -8371,12 +8387,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        845.4,
-        318.8
+        845.9,
+        319
       ],
       [
-        859.4,
-        324.7
+        859,
+        324.5
       ]
     ],
     "style": "metal_palisade",
@@ -8387,12 +8403,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        872,
+        872.5,
         318.9
       ],
       [
-        902.5,
-        321.3
+        901.2,
+        321.2
       ]
     ],
     "style": "wood_picket",
@@ -8403,12 +8419,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        910.8,
-        321.9
+        912.1,
+        322
       ],
       [
-        941.3,
-        324.4
+        940.8,
+        324.3
       ]
     ],
     "style": "wood_picket",
@@ -8419,12 +8435,12 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        871.3,
-        327.6
+        871.8,
+        327.7
       ],
       [
-        901.8,
-        330.1
+        900.5,
+        330
       ]
     ],
     "style": "hedge",
@@ -8434,11 +8450,11 @@ export const MIKOLOW_FENCES: readonly FenceDef[] = [
   {
     "points": [
       [
-        910.1,
-        330.7
+        911.4,
+        330.8
       ],
       [
-        940.6,
+        940.1,
         333.1
       ]
     ],
