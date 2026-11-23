@@ -76,10 +76,25 @@ export class RoadGraph {
   public readonly edgeMap = new Map<string, RoadEdge>();
   public readonly adjacency = new Map<string, Array<{ to: string; edge: RoadEdge }>>();
 
+  private readonly gridCellSize = 80;
+  private readonly edgeGrid = new Map<string, number[]>();
+  private readonly nodeGrid = new Map<string, RoadNode[]>();
+  private edgeVisitStamp!: Int32Array;
+  private visitToken = 1;
+
   constructor(nodes: RoadNode[], edges: Omit<RoadEdge, 'length'>[]) {
     for (const n of nodes) {
       this.nodes.set(n.id, n);
       this.adjacency.set(n.id, []);
+      const cx = Math.floor(n.x / this.gridCellSize);
+      const cz = Math.floor(n.z / this.gridCellSize);
+      const key = `${cx}_${cz}`;
+      let list = this.nodeGrid.get(key);
+      if (!list) {
+        list = [];
+        this.nodeGrid.set(key, list);
+      }
+      list.push(n);
     }
     for (const e of edges) {
       const a = this.nodes.get(e.from);
@@ -87,13 +102,31 @@ export class RoadGraph {
       if (!a || !b) continue;
       const length = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z);
       const full: RoadEdge = { ...e, length };
+      const edgeIdx = this.edges.length;
       this.edges.push(full);
       this.edgeMap.set(full.id, full);
       this.adjacency.get(e.from)!.push({ to: e.to, edge: full });
       if (!e.isOneWay) {
         this.adjacency.get(e.to)!.push({ to: e.from, edge: full });
       }
+
+      const minCX = Math.floor(Math.min(a.x, b.x) / this.gridCellSize);
+      const maxCX = Math.floor(Math.max(a.x, b.x) / this.gridCellSize);
+      const minCZ = Math.floor(Math.min(a.z, b.z) / this.gridCellSize);
+      const maxCZ = Math.floor(Math.max(a.z, b.z) / this.gridCellSize);
+      for (let cx = minCX; cx <= maxCX; cx++) {
+        for (let cz = minCZ; cz <= maxCZ; cz++) {
+          const key = `${cx}_${cz}`;
+          let cell = this.edgeGrid.get(key);
+          if (!cell) {
+            cell = [];
+            this.edgeGrid.set(key, cell);
+          }
+          cell.push(edgeIdx);
+        }
+      }
     }
+    this.edgeVisitStamp = new Int32Array(this.edges.length);
   }
 
   getNode(id: string): RoadNode | undefined {
@@ -114,6 +147,43 @@ export class RoadGraph {
   findNearestNode(x: number, z: number, allowShortcuts = false): RoadNode {
     let best: RoadNode | null = null;
     let bestDistSq = Infinity;
+    const baseCX = Math.floor(x / this.gridCellSize);
+    const baseCZ = Math.floor(z / this.gridCellSize);
+
+    // Search nearby spatial grid cells first (covers 240m x 240m neighborhood)
+    for (let cx = baseCX - 1; cx <= baseCX + 1; cx++) {
+      for (let cz = baseCZ - 1; cz <= baseCZ + 1; cz++) {
+        const list = this.nodeGrid.get(`${cx}_${cz}`);
+        if (!list) continue;
+        for (let i = 0; i < list.length; i++) {
+          const n = list[i];
+          if (!allowShortcuts) {
+            const adj = this.adjacency.get(n.id);
+            if (!adj || adj.every((a) => a.edge.isShortcut)) continue;
+          }
+          const dx = n.x - x;
+          const dz = n.z - z;
+          const d2 = dx * dx + dz * dz;
+          if (d2 < bestDistSq) {
+            bestDistSq = d2;
+            best = n;
+          }
+        }
+      }
+    }
+
+    // If a node was found closer than the distance to the outer ring boundary, it is guaranteed optimal
+    if (best) {
+      const minBorderX = x - (baseCX - 1) * this.gridCellSize;
+      const maxBorderX = (baseCX + 2) * this.gridCellSize - x;
+      const minBorderZ = z - (baseCZ - 1) * this.gridCellSize;
+      const maxBorderZ = (baseCZ + 2) * this.gridCellSize - z;
+      const safeRadius = Math.min(minBorderX, maxBorderX, minBorderZ, maxBorderZ);
+      if (bestDistSq <= safeRadius * safeRadius) {
+        return best;
+      }
+    }
+
     for (const n of this.nodes.values()) {
       if (!allowShortcuts) {
         const adj = this.adjacency.get(n.id);
@@ -270,47 +340,77 @@ export class RoadGraph {
     const hnx = hasHeading ? headingX / headingLen : 0;
     const hnz = hasHeading ? headingZ / headingLen : -1;
 
+    const maxDistSq = maxDistance * maxDistance;
     let bestEdge: RoadEdge | null = null;
     let bestScore = Infinity;
-    let bestDistSq = maxDistance * maxDistance;
+    let bestDistSq = maxDistSq;
     let bestT = 0;
     let bestCX = 0;
     let bestCY = 0;
     let bestCZ = 0;
 
-    for (let i = 0; i < this.edges.length; i++) {
-      const e = this.edges[i];
-      const a = this.nodes.get(e.from)!;
-      const b = this.nodes.get(e.to)!;
-      const dx = b.x - a.x;
-      const dz = b.z - a.z;
-      const lenSq = dx * dx + dz * dz;
-      if (lenSq < 0.0001) continue;
-      let t = ((x - a.x) * dx + (z - a.z) * dz) / lenSq;
-      t = Math.max(0, Math.min(1, t));
-      const cx = a.x + dx * t;
-      const cz = a.z + dz * t;
-      const distSq = (x - cx) * (x - cx) + (z - cz) * (z - cz);
-      if (distSq > maxDistance * maxDistance) continue;
+    const minCX = Math.floor((x - maxDistance) / this.gridCellSize);
+    const maxCX = Math.floor((x + maxDistance) / this.gridCellSize);
+    const minCZ = Math.floor((z - maxDistance) / this.gridCellSize);
+    const maxCZ = Math.floor((z + maxDistance) / this.gridCellSize);
 
-      const dist = Math.sqrt(distSq);
-      let score = dist;
-      if (hasHeading) {
-        const len = Math.sqrt(lenSq);
-        const align = Math.abs((dx / len) * hnx + (dz / len) * hnz);
-        // Prefer road edge aligned with vehicle heading so going straight across intersections
-        // never snaps onto the perpendicular cross-street
-        score += (1 - align) * 9.0;
+    const singleCell = minCX === maxCX && minCZ === maxCZ;
+    let token = 0;
+    if (!singleCell) {
+      this.visitToken = (this.visitToken + 1) | 0;
+      if (this.visitToken <= 0) {
+        this.edgeVisitStamp.fill(0);
+        this.visitToken = 1;
       }
+      token = this.visitToken;
+    }
 
-      if (score < bestScore) {
-        bestScore = score;
-        bestDistSq = distSq;
-        bestEdge = e;
-        bestT = t;
-        bestCX = cx;
-        bestCY = a.y + (b.y - a.y) * t;
-        bestCZ = cz;
+    for (let cxCell = minCX; cxCell <= maxCX; cxCell++) {
+      for (let czCell = minCZ; czCell <= maxCZ; czCell++) {
+        const bucket = this.edgeGrid.get(`${cxCell}_${czCell}`);
+        if (!bucket) continue;
+
+        for (let bIdx = 0; bIdx < bucket.length; bIdx++) {
+          const edgeIdx = bucket[bIdx];
+          if (!singleCell) {
+            if (this.edgeVisitStamp[edgeIdx] === token) continue;
+            this.edgeVisitStamp[edgeIdx] = token;
+          }
+
+          const e = this.edges[edgeIdx];
+          const a = this.nodes.get(e.from)!;
+          const b = this.nodes.get(e.to)!;
+          const dx = b.x - a.x;
+          const dz = b.z - a.z;
+          const lenSq = dx * dx + dz * dz;
+          if (lenSq < 0.0001) continue;
+          let t = ((x - a.x) * dx + (z - a.z) * dz) / lenSq;
+          t = Math.max(0, Math.min(1, t));
+          const cx = a.x + dx * t;
+          const cz = a.z + dz * t;
+          const distSq = (x - cx) * (x - cx) + (z - cz) * (z - cz);
+          if (distSq > maxDistSq) continue;
+
+          const dist = Math.sqrt(distSq);
+          let score = dist;
+          if (hasHeading) {
+            const len = Math.sqrt(lenSq);
+            const align = Math.abs((dx / len) * hnx + (dz / len) * hnz);
+            // Prefer road edge aligned with vehicle heading so going straight across intersections
+            // never snaps onto the perpendicular cross-street
+            score += (1 - align) * 9.0;
+          }
+
+          if (score < bestScore) {
+            bestScore = score;
+            bestDistSq = distSq;
+            bestEdge = e;
+            bestT = t;
+            bestCX = cx;
+            bestCY = a.y + (b.y - a.y) * t;
+            bestCZ = cz;
+          }
+        }
       }
     }
 

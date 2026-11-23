@@ -258,6 +258,9 @@ export interface TrafficTurnCurve {
   nextStartProgress: number;
 }
 
+const _tmpEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+const _tmpQuat = new THREE.Quaternion();
+
 export class TrafficCar {
   public readonly id: number;
   public readonly spec: VehicleSpec;
@@ -372,12 +375,12 @@ export class TrafficCar {
     this.yaw = yaw;
     this.dirX = -Math.sin(yaw);
     this.dirZ = -Math.cos(yaw);
-    const euler = new THREE.Euler(pitch, yaw, 0, 'YXZ');
-    const q = new THREE.Quaternion().setFromEuler(euler);
+    _tmpEuler.set(pitch, yaw, 0, 'YXZ');
+    _tmpQuat.setFromEuler(_tmpEuler);
     this.body.setNextKinematicTranslation({ x, y, z });
-    this.body.setNextKinematicRotation({ x: q.x, y: q.y, z: q.z, w: q.w });
+    this.body.setNextKinematicRotation({ x: _tmpQuat.x, y: _tmpQuat.y, z: _tmpQuat.z, w: _tmpQuat.w });
     this.mesh.position.set(x, y, z);
-    this.mesh.quaternion.copy(q);
+    this.mesh.quaternion.copy(_tmpQuat);
   }
 
   /**

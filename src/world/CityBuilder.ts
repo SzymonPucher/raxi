@@ -23,7 +23,7 @@ export interface CityBuildResult {
   textures: CityTextures;
   garageBeams: THREE.Mesh[];
   roadWorksBarricades: THREE.Group;
-  updateVisibility(playerX: number, playerZ: number, drawDistance: number): void;
+  updateVisibility(playerX: number, playerZ: number, drawDistance: number, shadowRange?: number): void;
   setRoadWorksVisible(edgeIds: string[]): void;
 }
 
@@ -157,8 +157,14 @@ export function buildCity(map: MapDefinition, physics: PhysicsWorld): CityBuildR
   // 2. ChunkBuilder for static buildings & landmarks
   //    (Mikołów merges windowed walls + solid roofs/trim/landmarks into 1 material/chunk -> half the draw calls!)
   const chunkBuilder = new ChunkBuilder();
+  const landmarkMat = new THREE.MeshLambertMaterial({
+    vertexColors: true,
+  });
   if (map.id === 'mikolow') {
-    chunkBuilder.registerMaterial('buildings', createMikolowBuildingMaterial(createPolishFacadeTexture()));
+    const mikolowMat = createMikolowBuildingMaterial(createPolishFacadeTexture());
+    chunkBuilder.registerMaterial('buildings', mikolowMat);
+    chunkBuilder.registerMaterial('fences', mikolowMat);
+    chunkBuilder.registerMaterial('fencePickets', mikolowMat);
   } else {
     chunkBuilder.registerMaterial(
       'buildings',
@@ -167,13 +173,10 @@ export function buildCity(map: MapDefinition, physics: PhysicsWorld): CityBuildR
         vertexColors: true,
       })
     );
+    chunkBuilder.registerMaterial('fences', landmarkMat);
+    chunkBuilder.registerMaterial('fencePickets', landmarkMat);
   }
-  chunkBuilder.registerMaterial(
-    'landmarks',
-    new THREE.MeshLambertMaterial({
-      vertexColors: true,
-    })
-  );
+  chunkBuilder.registerMaterial('landmarks', landmarkMat);
 
   // 4. Generate deterministic district buildings (Raxi City) OR authentic custom architecture (Mikołów)
   if (!map.disableDefaultGridBuildings) {
@@ -245,8 +248,8 @@ export function buildCity(map: MapDefinition, physics: PhysicsWorld): CityBuildR
     textures,
     garageBeams,
     roadWorksBarricades,
-    updateVisibility(playerX: number, playerZ: number, drawDistance: number) {
-      updateChunkVisibility(chunks, playerX, playerZ, drawDistance);
+    updateVisibility(playerX: number, playerZ: number, drawDistance: number, shadowRange = 150) {
+      updateChunkVisibility(chunks, playerX, playerZ, drawDistance, shadowRange);
     },
     setRoadWorksVisible,
   };
@@ -484,10 +487,29 @@ function buildCustomBuildings(
       uvTileH = 12.5
     ) => {
       if (h <= 0.05) return;
-      const geo = new THREE.BoxGeometry(w, h, d);
-      if (matKey === 'buildings') {
-        scaleUVs(geo, Math.max(0.5, w / uvTileW), Math.max(0.5, h / uvTileH));
+      if (matKey === 'landmarks') {
+        const wx = b.x + lx * cos + lz * sin;
+        const wz = b.z - lx * sin + lz * cos;
+        chunks.addOrientedBox(
+          b.x,
+          b.z,
+          unifiedChunkMat ? 'buildings' : 'landmarks',
+          wx,
+          yCenter,
+          wz,
+          w,
+          h,
+          d,
+          rotY,
+          color,
+          unifiedChunkMat ? -10 : 0,
+          false,
+          false
+        );
+        return;
       }
+      const geo = new THREE.BoxGeometry(w, h, d);
+      scaleUVs(geo, Math.max(0.5, w / uvTileW), Math.max(0.5, h / uvTileH));
       addPart(geo, lx, yCenter, lz, matKey, color);
     };
 
@@ -650,17 +672,7 @@ function buildFences(
   physics: PhysicsWorld
 ): void {
   const fences = map.fences ?? [];
-  const unifiedChunkMat = map.id === 'mikolow';
-
-  const commit = (cx: number, cz: number, geo: THREE.BufferGeometry, color: number) => {
-    if (unifiedChunkMat) {
-      setSolidUVs(geo);
-      chunks.addGeometry(cx, cz, 'buildings', geo, color);
-    } else {
-      chunks.addGeometry(cx, cz, 'landmarks', geo, color);
-    }
-    geo.dispose();
-  };
+  const uvVal = map.id === 'mikolow' ? -10 : 0;
 
   for (const f of fences) {
     const pts = f.points;
@@ -702,49 +714,36 @@ function buildFences(
       const my = (y0 + y1) * 0.5;
 
       if (f.style === 'hedge') {
-        const hedgeGeo = new THREE.BoxGeometry(0.65, h, len);
-        hedgeGeo.rotateY(yaw);
-        hedgeGeo.translate(mx, my + h * 0.5, mz);
-        commit(mx, mz, hedgeGeo, mainCol);
+        chunks.addOrientedBox(mx, mz, 'fences', mx, my + h * 0.5, mz, 0.65, h, len, yaw, mainCol, uvVal, true, false);
       } else if (f.style === 'concrete_panel') {
-        const wallGeo = new THREE.BoxGeometry(0.16, h, len);
-        wallGeo.rotateY(yaw);
-        wallGeo.translate(mx, my + h * 0.5, mz);
-        commit(mx, mz, wallGeo, mainCol);
+        chunks.addOrientedBox(mx, mz, 'fences', mx, my + h * 0.5, mz, 0.16, h, len, yaw, mainCol, uvVal, true, false);
       } else {
         // Posts every ~2.6m + horizontal rails + vertical pickets/mesh
         const postCount = Math.max(2, Math.round(len / 2.6) + 1);
+        const postH = h + 0.08;
         for (let p = 0; p < postCount; p++) {
           const t = p / (postCount - 1);
           const px = x0 + dx * t;
           const pz = z0 + dz * t;
           const py = map.heightMap.sample(px, pz);
-          const postGeo = new THREE.BoxGeometry(0.14, h + 0.08, 0.14);
-          postGeo.rotateY(yaw);
-          postGeo.translate(px, py + (h + 0.08) * 0.5, pz);
-          commit(px, pz, postGeo, postCol);
+          chunks.addOrientedBox(px, pz, 'fences', px, py + postH * 0.5, pz, 0.14, postH, 0.14, yaw, postCol, uvVal, true, false);
         }
 
-        // Top and bottom rails
+        // Top and bottom rails (end caps buried inside end posts -> omitEnds = true)
         for (const ry of [h * 0.25, h * 0.85]) {
-          const railGeo = new THREE.BoxGeometry(0.06, 0.08, len);
-          railGeo.rotateY(yaw);
-          railGeo.translate(mx, my + ry, mz);
-          commit(mx, mz, railGeo, mainCol);
+          chunks.addOrientedBox(mx, mz, 'fences', mx, my + ry, mz, 0.06, 0.08, len, yaw, mainCol, uvVal, false, true);
         }
 
         if (f.style === 'metal_palisade' || f.style === 'wood_picket') {
           const picketStep = f.style === 'wood_picket' ? 0.45 : 0.55;
           const picketCount = Math.max(2, Math.floor(len / picketStep));
+          const picketH = h * 0.9;
           for (let k = 1; k < picketCount; k++) {
             const t = k / picketCount;
             const px = x0 + dx * t;
             const pz = z0 + dz * t;
             const py = map.heightMap.sample(px, pz);
-            const pGeo = new THREE.BoxGeometry(0.05, h * 0.9, 0.07);
-            pGeo.rotateY(yaw);
-            pGeo.translate(px, py + h * 0.48, pz);
-            commit(px, pz, pGeo, mainCol);
+            chunks.addOrientedBox(px, pz, 'fencePickets', px, py + h * 0.48, pz, 0.05, picketH, 0.07, yaw, mainCol, uvVal, true, false);
           }
         }
       }

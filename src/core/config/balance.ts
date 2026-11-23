@@ -124,7 +124,9 @@ export const BALANCE = {
   damageFlipReset: 10,
 
   // Pedestrians (§7.2)
-  pedMaxCount: 55,
+  pedMaxCount: 30,
+  pedBaseSparseCount: 5,
+  pedHotspotRadius: 85,
   pedSpawnRadius: 140,
   pedDespawnRadius: 170,
   pedExplosionKnockbackUp: 2.0,

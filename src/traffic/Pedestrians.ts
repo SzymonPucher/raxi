@@ -9,9 +9,14 @@ import { MapDefinition, SidewalkSpot } from '../world/mapData';
 interface Pedestrian {
   id: number;
   active: boolean;
+  wasVisible: boolean;
+  inHotspot: boolean;
   x: number;
   y: number;
   z: number;
+  anchorX: number;
+  anchorZ: number;
+  patrolRadius: number;
   vx: number;
   vz: number;
   walkDirX: number;
@@ -28,6 +33,14 @@ interface Pedestrian {
   hairColor: THREE.Color;
   heightScale: number;
   walkPhase: number;
+}
+
+interface PedHotspot {
+  x: number;
+  z: number;
+  radius: number;
+  densityWeight: number;
+  spots: SidewalkSpot[];
 }
 
 export interface PedImpactResult {
@@ -166,6 +179,8 @@ function buildWaitingPassengerCharacter(typeId: PassengerTypeId, shirtColorHex: 
 export class PedestriansManager {
   public readonly group = new THREE.Group();
   private readonly peds: Pedestrian[] = [];
+  private readonly hotspots: PedHotspot[] = [];
+  private readonly hotspotSpots: SidewalkSpot[] = [];
 
   private readonly torsoInst: THREE.InstancedMesh;
   private readonly hipsInst: THREE.InstancedMesh;
@@ -239,9 +254,14 @@ export class PedestriansManager {
       const ped: Pedestrian = {
         id: i + 1,
         active: false,
+        wasVisible: false,
+        inHotspot: false,
         x: 0,
         y: -100,
         z: 0,
+        anchorX: 0,
+        anchorZ: 0,
+        patrolRadius: 18,
         vx: 0,
         vz: 0,
         walkDirX: 1,
@@ -270,6 +290,8 @@ export class PedestriansManager {
       this.headInst.setColorAt(i, ped.skinColor);
       this.hairInst.setColorAt(i, ped.hairColor);
     }
+
+    this.buildCrowdHotspots();
 
     this.group.add(
       this.torsoInst,
@@ -313,6 +335,111 @@ export class PedestriansManager {
       this.group.add(g);
       this.destBeams.push(g);
     }
+  }
+
+  /**
+   * Builds concentrated pedestrian crowd hotspots around major squares (Rynek), stations,
+   * shopping malls/centers, civic hubs, and parks so crowds gather densely in lively focal areas
+   * while ordinary residential and outskirts streets stay sparse.
+   */
+  private buildCrowdHotspots(): void {
+    const spots = this.map.sidewalkSpots;
+    const majorStyles = new Set([
+      'townhall',
+      'train_station',
+      'station',
+      'mall',
+      'retail_center',
+      'tower',
+      'basilika',
+      'basilica',
+      'stadium',
+    ]);
+    const secondaryStyles = new Set([
+      'church',
+      'hall',
+      'campus',
+      'cinema',
+      'hospital',
+      'bar',
+      'block_estate',
+      'beach',
+    ]);
+
+    for (const lm of this.map.landmarks) {
+      const isMajor = majorStyles.has(lm.style);
+      const isSecondary = secondaryStyles.has(lm.style);
+      if (!isMajor && !isSecondary) continue;
+
+      const radius = isMajor ? BALANCE.pedHotspotRadius : BALANCE.pedHotspotRadius * 0.75;
+      const densityWeight = isMajor ? 1.0 : 0.65;
+      const nearSpots = spots.filter(
+        (s) =>
+          s.landmarkId === lm.id ||
+          Math.hypot(s.x - lm.curbX, s.z - lm.curbZ) <= radius * 0.68
+      );
+      if (nearSpots.length > 0) {
+        this.hotspots.push({
+          x: lm.curbX,
+          z: lm.curbZ,
+          radius,
+          densityWeight,
+          spots: nearSpots,
+        });
+      }
+    }
+
+    const seen = new Set<SidewalkSpot>();
+    for (const hs of this.hotspots) {
+      for (const s of hs.spots) {
+        if (!seen.has(s)) {
+          seen.add(s);
+          this.hotspotSpots.push(s);
+        }
+      }
+    }
+  }
+
+  /**
+   * Computes how many pedestrians should be active around (px, pz):
+   * - High (up to pedMaxCount) when inside or approaching a dense crowd hotspot
+   * - Low (2..pedBaseSparseCount) on ordinary streets and outskirts so pedestrians aren't everywhere
+   */
+  private computeLocalTargetCount(px: number, pz: number): {
+    targetCount: number;
+    nearbyHotspots: PedHotspot[];
+  } {
+    const nearbyHotspots: PedHotspot[] = [];
+    let hotspotInfluence = 0;
+
+    for (let i = 0; i < this.hotspots.length; i++) {
+      const hs = this.hotspots[i];
+      const d = Math.hypot(hs.x - px, hs.z - pz);
+      const reach = BALANCE.pedSpawnRadius + hs.radius * 0.5;
+      if (d <= reach) {
+        nearbyHotspots.push(hs);
+        const closeness = Math.max(0, 1 - d / reach);
+        hotspotInfluence += hs.densityWeight * (0.45 + 0.55 * closeness);
+      }
+    }
+
+    const distFromCenter = Math.hypot(px, pz);
+    const baseSparse =
+      distFromCenter > this.map.cityCoreHalfSize
+        ? Math.max(2, Math.floor(BALANCE.pedBaseSparseCount * 0.4))
+        : BALANCE.pedBaseSparseCount;
+
+    if (nearbyHotspots.length === 0) {
+      return { targetCount: baseSparse, nearbyHotspots };
+    }
+
+    const extra = Math.round(
+      Math.min(1, hotspotInfluence) * (BALANCE.pedMaxCount - baseSparse)
+    );
+    return {
+      targetCount: Math.min(BALANCE.pedMaxCount, baseSparse + extra),
+      nearbyHotspots,
+    };
   }
 
   private hidePedInstance(i: number): void {
@@ -382,6 +509,7 @@ export class PedestriansManager {
   reset(): void {
     for (let i = 0; i < this.peds.length; i++) {
       this.peds[i].active = false;
+      this.peds[i].wasVisible = false;
       this.peds[i].chainTimer = 0;
       this.peds[i].respawnTimer = 0;
       this.hidePedInstance(i);
@@ -410,6 +538,12 @@ export class PedestriansManager {
     const fwdX = player.forwardDir.x;
     const fwdZ = player.forwardDir.z;
 
+    const { targetCount, nearbyHotspots } = this.computeLocalTargetCount(px, pz);
+    let activeCount = 0;
+    for (let i = 0; i < this.peds.length; i++) {
+      if (this.peds[i].active) activeCount++;
+    }
+
     const triggerChainAround = (ex: number, ez: number) => {
       const r2 = BALANCE.pedChainRadius * BALANCE.pedChainRadius;
       for (const other of this.peds) {
@@ -421,15 +555,23 @@ export class PedestriansManager {
       }
     };
 
+    let anyMatrixChanged = false;
+
     for (let i = 0; i < this.peds.length; i++) {
       const p = this.peds[i];
       if (!p.active) {
         if (p.respawnTimer > 0) {
           p.respawnTimer -= dt;
-        } else {
-          this.trySpawnPed(p, px, pz, rng);
+        } else if (activeCount < targetCount) {
+          if (this.trySpawnPed(p, px, pz, nearbyHotspots, rng)) {
+            activeCount++;
+          }
         }
-        this.hidePedInstance(i);
+        if (p.wasVisible && !p.active) {
+          this.hidePedInstance(i);
+          p.wasVisible = false;
+          anyMatrixChanged = true;
+        }
         continue;
       }
 
@@ -439,10 +581,13 @@ export class PedestriansManager {
         p.chainTimer -= dt;
         if (p.chainTimer <= 0) {
           p.active = false;
+          p.wasVisible = false;
+          activeCount--;
           p.respawnTimer = BALANCE.pedRespawnDelay;
           out.explosions.push({ x: p.x, y: p.y, z: p.z, isChain: true, wasPassenger: false });
           triggerChainAround(p.x, p.z);
           this.hidePedInstance(i);
+          anyMatrixChanged = true;
           continue;
         }
       }
@@ -451,10 +596,17 @@ export class PedestriansManager {
       const dz = p.z - pz;
       const dist = Math.hypot(dx, dz);
 
-      if (dist > BALANCE.pedDespawnRadius) {
+      // Cull pedestrians beyond despawn radius, or trim excess background peds when leaving a hotspot
+      if (
+        dist > BALANCE.pedDespawnRadius ||
+        (activeCount > targetCount && !p.inHotspot && dist > 65)
+      ) {
         p.active = false;
+        p.wasVisible = false;
+        activeCount--;
         p.respawnTimer = 0.5;
         this.hidePedInstance(i);
+        anyMatrixChanged = true;
         continue;
       }
 
@@ -480,6 +632,17 @@ export class PedestriansManager {
         p.x += p.walkDirX * p.walkSpeed * dt;
         p.z += p.walkDirZ * p.walkSpeed * dt;
         p.walkPhase += dt * p.walkSpeed * 4.2;
+
+        // Keep pedestrians patrolling within their sidewalk/hotspot cluster instead of wandering away
+        const adx = p.x - p.anchorX;
+        const adz = p.z - p.anchorZ;
+        if (
+          adx * adx + adz * adz > p.patrolRadius * p.patrolRadius &&
+          adx * p.walkDirX + adz * p.walkDirZ > 0
+        ) {
+          p.walkDirX = -p.walkDirX;
+          p.walkDirZ = -p.walkDirZ;
+        }
       }
       p.y = this.map.heightMap.sample(p.x, p.z);
 
@@ -487,10 +650,13 @@ export class PedestriansManager {
       if (!player.isGhost && Math.abs(py - p.y) < 2.2) {
         if (dist < 1.85) {
           p.active = false;
+          p.wasVisible = false;
+          activeCount--;
           p.respawnTimer = BALANCE.pedRespawnDelay;
           out.explosions.push({ x: p.x, y: p.y, z: p.z, isChain: false, wasPassenger: false });
           triggerChainAround(p.x, p.z);
           this.hidePedInstance(i);
+          anyMatrixChanged = true;
           continue;
         } else if (dist < 2.85 && pSpd > 9 && p.scareCooldown <= 0) {
           p.scareCooldown = 3.0;
@@ -499,9 +665,13 @@ export class PedestriansManager {
       }
 
       this.updatePedInstance(i, p);
+      p.wasVisible = true;
+      anyMatrixChanged = true;
     }
 
-    this.markAllDirty();
+    if (anyMatrixChanged) {
+      this.markAllDirty();
+    }
 
     // Waiting passenger direct impacts
     if (!player.isGhost) {
@@ -540,10 +710,27 @@ export class PedestriansManager {
     return out;
   }
 
-  private trySpawnPed(p: Pedestrian, px: number, pz: number, rng: Rng): void {
-    const spots: SidewalkSpot[] = this.map.sidewalkSpots;
-    for (let attempt = 0; attempt < 8; attempt++) {
-      const s = rng.pick(spots);
+  private trySpawnPed(
+    p: Pedestrian,
+    px: number,
+    pz: number,
+    nearbyHotspots: PedHotspot[],
+    rng: Rng
+  ): boolean {
+    const allSpots: SidewalkSpot[] = this.map.sidewalkSpots;
+    const useHotspot = nearbyHotspots.length > 0 && rng.chance(0.88);
+
+    for (let attempt = 0; attempt < 10; attempt++) {
+      let s: SidewalkSpot;
+      let isHotspotSpawn = false;
+      if (useHotspot) {
+        const hs = rng.pick(nearbyHotspots);
+        s = rng.pick(hs.spots);
+        isHotspotSpawn = true;
+      } else {
+        s = rng.pick(allSpots);
+      }
+
       const d = Math.hypot(s.x - px, s.z - pz);
       if (d < 22 || d > BALANCE.pedSpawnRadius) continue;
 
@@ -559,18 +746,29 @@ export class PedestriansManager {
         dirZ = ((b.z - a.z) / len) * sign;
       }
 
+      // In hotspots, cluster people tightly along the sidewalk promenade (±6m along sidewalk, ±0.8m lateral)
+      const alongOffset = isHotspotSpawn ? rng.range(-7.5, 7.5) : rng.range(-2.5, 2.5);
+      const latOffset = isHotspotSpawn ? rng.range(-0.85, 0.85) : rng.range(-0.6, 0.6);
+      const rightX = -dirZ;
+      const rightZ = dirX;
+
       p.active = true;
-      p.x = s.x + rng.range(-2.5, 2.5);
-      p.z = s.z + rng.range(-2.5, 2.5);
+      p.inHotspot = isHotspotSpawn;
+      p.anchorX = s.x;
+      p.anchorZ = s.z;
+      p.patrolRadius = isHotspotSpawn ? 16 : 24;
+      p.x = s.x + dirX * alongOffset + rightX * latOffset;
+      p.z = s.z + dirZ * alongOffset + rightZ * latOffset;
       p.y = this.map.heightMap.sample(p.x, p.z);
       p.walkDirX = dirX;
       p.walkDirZ = dirZ;
-      p.walkSpeed = rng.range(1.2, 2.1);
+      p.walkSpeed = rng.range(1.2, 2.0);
       p.diving = false;
       p.chainTimer = 0;
-      return;
+      return true;
     }
     p.respawnTimer = 0.6;
+    return false;
   }
 
   private syncWaitingPassengerVisuals(

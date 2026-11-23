@@ -1797,7 +1797,12 @@ export class Game {
     this.sunLight.target.updateMatrixWorld();
 
     // Spatial chunk culling
-    this.city.updateVisibility(this.camera.position.x, this.camera.position.z, preset.drawDistance);
+    this.city.updateVisibility(
+      this.camera.position.x,
+      this.camera.position.z,
+      preset.drawDistance,
+      preset.shadows ? preset.shadowRange : 0
+    );
 
     // Props, FX, Garage beams animation
     if (inWorld) {
@@ -1810,7 +1815,11 @@ export class Game {
     }
 
     // Audio engine update
-    const maxSlip = Math.max(...this.vehicle.wheels.map((w) => w.slipAmount));
+    let maxSlip = 0;
+    for (let i = 0; i < this.vehicle.wheels.length; i++) {
+      const s = this.vehicle.wheels[i].slipAmount;
+      if (s > maxSlip) maxSlip = s;
+    }
     this.audio.update(realDt, {
       speed: this.vehicle.speed,
       throttle: this.input.state.throttle,

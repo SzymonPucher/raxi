@@ -31,6 +31,15 @@ export class ChaseCamera {
   private readonly tmpPos = new THREE.Vector3();
   private readonly tmpQuat = new THREE.Quaternion();
   private readonly tmpFwd = new THREE.Vector3();
+  private readonly desiredDir = new THREE.Vector3();
+  private readonly velDir = new THREE.Vector3();
+  private readonly activeDir = new THREE.Vector3();
+  private readonly pivot = new THREE.Vector3();
+  private readonly idealPos = new THREE.Vector3();
+  private readonly rayVec = new THREE.Vector3();
+  private readonly rayDir = new THREE.Vector3();
+  private readonly lookTarget = new THREE.Vector3();
+  private readonly shakeOffset = new THREE.Vector3();
 
   constructor(
     public readonly camera: THREE.PerspectiveCamera,
@@ -116,10 +125,10 @@ export class ChaseCamera {
     }
 
     // Blend heading toward velocity when moving fast so drifts feel cinematic
-    const desiredDir = this.tmpFwd.clone();
+    const desiredDir = this.desiredDir.copy(this.tmpFwd);
     const horizSpeed = Math.hypot(vehicle.velocity.x, vehicle.velocity.z);
     if (horizSpeed > 6 && !vehicle.isReversing) {
-      const velDir = new THREE.Vector3(vehicle.velocity.x, 0, vehicle.velocity.z).normalize();
+      const velDir = this.velDir.set(vehicle.velocity.x, 0, vehicle.velocity.z).normalize();
       desiredDir.lerp(velDir, 0.35).normalize();
     } else if (vehicle.reverseDuration > 2.0) {
       desiredDir.negate();
@@ -150,7 +159,9 @@ export class ChaseCamera {
       this.orbitPitch = 0;
     }
 
-    const activeDir = lookBack ? this.tmpFwd.clone().negate() : this.smoothedDir.clone();
+    const activeDir = lookBack
+      ? this.activeDir.copy(this.tmpFwd).negate()
+      : this.activeDir.copy(this.smoothedDir);
     if (!lookBack && Math.abs(this.orbitYaw) > 0.0005) {
       const cosY = Math.cos(this.orbitYaw);
       const sinY = Math.sin(this.orbitYaw);
@@ -164,17 +175,17 @@ export class ChaseCamera {
     const baseUp = 2.6;
     const backDist = baseBack * Math.cos(this.orbitPitch);
     const upHeight = baseUp + baseBack * Math.sin(this.orbitPitch);
-    const pivot = new THREE.Vector3(this.tmpPos.x, this.tmpPos.y + 1.35, this.tmpPos.z);
-    const idealPos = pivot
-      .clone()
-      .addScaledVector(activeDir, -backDist)
-      .add(new THREE.Vector3(0, upHeight - 1.35, 0));
+    const pivot = this.pivot.set(this.tmpPos.x, this.tmpPos.y + 1.35, this.tmpPos.z);
+    const idealPos = this.idealPos
+      .copy(pivot)
+      .addScaledVector(activeDir, -backDist);
+    idealPos.y += upHeight - 1.35;
 
     // Raycast from car to ideal camera position to prevent building clipping (§5.5)
-    const rayVec = new THREE.Vector3().subVectors(idealPos, pivot);
+    const rayVec = this.rayVec.subVectors(idealPos, pivot);
     const rayDist = rayVec.length();
     if (rayDist > 0.2) {
-      const rayDir = rayVec.clone().divideScalar(rayDist);
+      const rayDir = this.rayDir.copy(rayVec).divideScalar(rayDist);
       const hit = this.physics.castRay(
         { x: pivot.x, y: pivot.y, z: pivot.z },
         { x: rayDir.x, y: rayDir.y, z: rayDir.z },
@@ -195,10 +206,8 @@ export class ChaseCamera {
     }
 
     // Look ahead of car along velocity
-    const lookTarget = this.tmpPos
-      .clone()
-      .add(new THREE.Vector3(0, 1.15, 0))
-      .addScaledVector(activeDir, 4.5 + Math.min(5, horizSpeed * 0.14));
+    const lookTarget = this.lookTarget.set(this.tmpPos.x, this.tmpPos.y + 1.15, this.tmpPos.z);
+    lookTarget.addScaledVector(activeDir, 4.5 + Math.min(5, horizSpeed * 0.14));
 
     if (lookBack) {
       this.currentLook.copy(lookTarget);
@@ -207,7 +216,7 @@ export class ChaseCamera {
     }
 
     // Camera shake
-    const shakeOffset = new THREE.Vector3();
+    const shakeOffset = this.shakeOffset.set(0, 0, 0);
     if (this.shakeTimer > 0 && this.shakeEnabled) {
       this.shakeTimer = Math.max(0, this.shakeTimer - dt);
       const decay = this.shakeTimer / this.shakeDuration;

@@ -178,17 +178,67 @@ export class PropsManager {
     const zones = map.greenZones ?? [];
     const customBuildings = map.customBuildings ?? [];
     const railLines = map.railLines ?? [];
-    const sportsPolygons = zones.filter((z) => z.kind === 'sports').map((z) => z.polygon);
-    const landmarkPolygons: Array<Array<[number, number]>> = [];
+
+    interface BoundedPoly {
+      poly: Array<[number, number]>;
+      minX: number;
+      maxX: number;
+      minZ: number;
+      maxZ: number;
+    }
+    const wrapPoly = (poly: Array<[number, number]>): BoundedPoly => {
+      let minX = Infinity;
+      let maxX = -Infinity;
+      let minZ = Infinity;
+      let maxZ = -Infinity;
+      for (let i = 0; i < poly.length; i++) {
+        const px = poly[i][0];
+        const pz = poly[i][1];
+        if (px < minX) minX = px;
+        if (px > maxX) maxX = px;
+        if (pz < minZ) minZ = pz;
+        if (pz > maxZ) maxZ = pz;
+      }
+      return { poly, minX, maxX, minZ, maxZ };
+    };
+
+    const sportsPolygons = zones
+      .filter((z) => z.kind === 'sports' && z.polygon.length >= 3)
+      .map((z) => wrapPoly(z.polygon));
+    const landmarkPolygons: BoundedPoly[] = [];
     for (const l of map.landmarks) {
       if (l.footprintParts) {
         for (const p of l.footprintParts) {
-          if (p.polygon.length >= 3) landmarkPolygons.push(p.polygon);
+          if (p.polygon.length >= 3) landmarkPolygons.push(wrapPoly(p.polygon));
         }
       }
       if (l.parkingLots) {
         for (const lot of l.parkingLots) {
-          if (lot.polygon.length >= 3) landmarkPolygons.push(lot.polygon);
+          if (lot.polygon.length >= 3) landmarkPolygons.push(wrapPoly(lot.polygon));
+        }
+      }
+    }
+
+    // Pre-index custom buildings into a 64m spatial grid so tree clearance checks run in O(1)
+    const bldCellSize = 64;
+    const buildingGrid = new Map<string, Array<{ x: number; z: number; rad: number }>>();
+    for (let i = 0; i < customBuildings.length; i++) {
+      const b = customBuildings[i];
+      const rad = Math.max(b.w, b.d) * 0.56 + 2.8;
+      const entry = { x: b.x, z: b.z, rad };
+      const minCX = Math.floor((b.x - rad) / bldCellSize);
+      const maxCX = Math.floor((b.x + rad) / bldCellSize);
+      const minCZ = Math.floor((b.z - rad) / bldCellSize);
+      const maxCZ = Math.floor((b.z + rad) / bldCellSize);
+      for (let cx = minCX; cx <= maxCX; cx++) {
+        for (let cz = minCZ; cz <= maxCZ; cz++) {
+          const key = `${cx}_${cz}`;
+          let cell = buildingGrid.get(key);
+          if (!cell) {
+            cell = [];
+            buildingGrid.set(key, cell);
+          }
+          cell.push(entry);
         }
       }
     }
@@ -203,10 +253,14 @@ export class PropsManager {
 
       // Never place trees on sports pitches or landmark buildings/parking lots
       for (let s = 0; s < sportsPolygons.length; s++) {
-        if (pointInPolygon(x, z, sportsPolygons[s])) return false;
+        const sp = sportsPolygons[s];
+        if (x < sp.minX || x > sp.maxX || z < sp.minZ || z > sp.maxZ) continue;
+        if (pointInPolygon(x, z, sp.poly)) return false;
       }
       for (let lp = 0; lp < landmarkPolygons.length; lp++) {
-        if (pointInPolygon(x, z, landmarkPolygons[lp])) return false;
+        const lpoly = landmarkPolygons[lp];
+        if (x < lpoly.minX || x > lpoly.maxX || z < lpoly.minZ || z > lpoly.maxZ) continue;
+        if (pointInPolygon(x, z, lpoly.poly)) return false;
       }
 
       // Avoid all roads + sidewalks
@@ -220,7 +274,19 @@ export class PropsManager {
       for (let r = 0; r < railLines.length; r++) {
         const pts = railLines[r].points;
         for (let p = 0; p < pts.length - 1; p++) {
-          if (distToSegmentSq(x, z, pts[p][0], pts[p][1], pts[p + 1][0], pts[p + 1][1]) < 6.0 * 6.0) {
+          const x0 = pts[p][0];
+          const z0 = pts[p][1];
+          const x1 = pts[p + 1][0];
+          const z1 = pts[p + 1][1];
+          if (
+            x < Math.min(x0, x1) - 6.0 ||
+            x > Math.max(x0, x1) + 6.0 ||
+            z < Math.min(z0, z1) - 6.0 ||
+            z > Math.max(z0, z1) + 6.0
+          ) {
+            continue;
+          }
+          if (distToSegmentSq(x, z, x0, z0, x1, z1) < 6.0 * 6.0) {
             return false;
           }
         }
@@ -241,12 +307,14 @@ export class PropsManager {
         if ((r.x - x) ** 2 + (r.z - z) ** 2 < 15 * 15) return false;
       }
 
-      // Avoid custom building footprints (with 2.8m clearance margin)
-      for (let i = 0; i < customBuildings.length; i++) {
-        const b = customBuildings[i];
-        const rad = Math.max(b.w, b.d) * 0.56 + 2.8;
-        if (Math.abs(x - b.x) < rad && Math.abs(z - b.z) < rad) {
-          return false;
+      // Avoid custom building footprints (with 2.8m clearance margin) via spatial grid
+      const cell = buildingGrid.get(`${Math.floor(x / bldCellSize)}_${Math.floor(z / bldCellSize)}`);
+      if (cell) {
+        for (let i = 0; i < cell.length; i++) {
+          const b = cell[i];
+          if (Math.abs(x - b.x) < b.rad && Math.abs(z - b.z) < b.rad) {
+            return false;
+          }
         }
       }
 

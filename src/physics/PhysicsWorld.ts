@@ -21,6 +21,7 @@ export interface CollisionContactEvent {
 export class PhysicsWorld {
   public world!: RAPIER.World;
   public eventQueue!: RAPIER.EventQueue;
+  private staticBody!: RAPIER.RigidBody;
   private colliderTags = new Map<number, ColliderTag>();
   private static initialized = false;
 
@@ -33,6 +34,7 @@ export class PhysicsWorld {
   constructor() {
     this.world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
     this.eventQueue = new RAPIER.EventQueue(true);
+    this.staticBody = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
   }
 
   registerTag(collider: RAPIER.Collider, tag: ColliderTag): void {
@@ -106,16 +108,15 @@ export class PhysicsWorld {
     group: number = CG.STATIC_WORLD,
     rotY = 0
   ): RAPIER.Collider {
-    const bodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(x, y, z);
-    if (rotY !== 0) {
-      bodyDesc.setRotation({ x: 0, y: Math.sin(rotY * 0.5), z: 0, w: Math.cos(rotY * 0.5) });
-    }
-    const body = this.world.createRigidBody(bodyDesc);
     const colDesc = RAPIER.ColliderDesc.cuboid(hx, hy, hz)
+      .setTranslation(x, y, z)
       .setCollisionGroups(makeCollisionGroups(group, CG.PLAYER | CG.TRAFFIC | CG.PROPS_BREAKABLE))
       .setFriction(0.5)
       .setRestitution(0.0);
-    const col = this.world.createCollider(colDesc, body);
+    if (rotY !== 0) {
+      colDesc.setRotation({ x: 0, y: Math.sin(rotY * 0.5), z: 0, w: Math.cos(rotY * 0.5) });
+    }
+    const col = this.world.createCollider(colDesc, this.staticBody);
     this.registerTag(col, tag);
     return col;
   }
@@ -126,12 +127,11 @@ export class PhysicsWorld {
     tag: ColliderTag,
     group: number = CG.GROUND
   ): RAPIER.Collider {
-    const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
     const colDesc = RAPIER.ColliderDesc.trimesh(vertices, indices)
       .setCollisionGroups(makeCollisionGroups(group, CG.PLAYER | CG.TRAFFIC | CG.PROPS_BREAKABLE))
       .setFriction(0.75)
       .setRestitution(0.0);
-    const col = this.world.createCollider(colDesc, body);
+    const col = this.world.createCollider(colDesc, this.staticBody);
     this.registerTag(col, tag);
     return col;
   }

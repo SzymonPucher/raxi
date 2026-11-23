@@ -33,6 +33,19 @@ export type BlinkerSide = 'off' | 'left' | 'right';
 const _v1 = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const _v3 = new THREE.Vector3();
+const _rMount = new THREE.Vector3();
+const _omega = new THREE.Vector3();
+const _mountVel = new THREE.Vector3();
+const _wheelFwd = new THREE.Vector3();
+const _wheelRight = new THREE.Vector3();
+const _rVec = new THREE.Vector3();
+const _ptVel = new THREE.Vector3();
+const _latImpulse = new THREE.Vector3();
+const _gripPoint = new THREE.Vector3();
+const _imp = new THREE.Vector3();
+const _rollVec = new THREE.Vector3();
+const _torque = new THREE.Vector3();
+const _axis = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
 const _fwd = new THREE.Vector3(0, 0, -1);
 const _right = new THREE.Vector3(1, 0, 0);
@@ -461,12 +474,12 @@ export class ArcadeVehicle {
         w.contactNormal.set(hitNormalX, hitNormalY, hitNormalZ);
 
         // Velocity at mount point = v + omega x r (smooth velocity-based damper, zero finite-diff chatter!)
-        const rMount = new THREE.Vector3().subVectors(mountWorld, this.currPosition);
-        const omega = new THREE.Vector3(ang.x, ang.y, ang.z);
-        const mountVel = new THREE.Vector3().copy(this.velocity).add(omega.clone().cross(rMount));
+        _rMount.subVectors(mountWorld, this.currPosition);
+        _omega.set(ang.x, ang.y, ang.z);
+        _mountVel.copy(_omega).cross(_rMount).add(this.velocity);
 
         // 1. Suspension spring + velocity damper force
-        const compVel = -mountVel.dot(this.upDir);
+        const compVel = -_mountVel.dot(this.upDir);
         const springF = Math.max(
           0,
           Math.min(
@@ -482,19 +495,20 @@ export class ArcadeVehicle {
         );
 
         // Compute wheel world basis (steered for front wheels)
-        const wheelFwd = new THREE.Vector3().copy(this.forwardDir);
-        const wheelRight = new THREE.Vector3().copy(this.rightDir);
+        _wheelFwd.copy(this.forwardDir);
+        _wheelRight.copy(this.rightDir);
         if (w.isFront && Math.abs(w.steerAngle) > 0.0001) {
-          wheelFwd.applyAxisAngle(this.upDir, w.steerAngle);
-          wheelRight.applyAxisAngle(this.upDir, w.steerAngle);
+          _wheelFwd.applyAxisAngle(this.upDir, w.steerAngle);
+          _wheelRight.applyAxisAngle(this.upDir, w.steerAngle);
         }
 
         // Velocity at contact point = v + omega x r
-        const rVec = new THREE.Vector3().subVectors(w.contactPoint, this.currPosition);
-        const ptVel = new THREE.Vector3().copy(this.velocity).add(omega.cross(rVec));
+        _rVec.subVectors(w.contactPoint, this.currPosition);
+        _omega.set(ang.x, ang.y, ang.z);
+        _ptVel.copy(_omega).cross(_rVec).add(this.velocity);
 
-        const wheelFwdVel = ptVel.dot(wheelFwd);
-        const wheelLatVel = ptVel.dot(wheelRight);
+        const wheelFwdVel = _ptVel.dot(_wheelFwd);
+        const wheelLatVel = _ptVel.dot(_wheelRight);
 
         // 2. Lateral grip impulse (§5.1)
         let wheelGrip = eff.grip;
@@ -509,14 +523,15 @@ export class ArcadeVehicle {
         const wheelMassShare = eff.mass * 0.25;
         const cancelFraction = Math.min(0.95, wheelGrip * (handbrake && !w.isFront ? 0.35 : 0.42));
         const latImpulseMag = -wheelLatVel * wheelMassShare * cancelFraction;
-        const latImpulse = wheelRight.clone().multiplyScalar(latImpulseMag);
+        _latImpulse.copy(_wheelRight).multiplyScalar(latImpulseMag);
         // Apply at COM vertical height (zero local Y offset) so sharp cornering never tips the car
-        const gripPoint = new THREE.Vector3(w.localMount.x, 0, w.localMount.z)
+        _gripPoint
+          .set(w.localMount.x, 0, w.localMount.z)
           .applyQuaternion(this.currQuaternion)
           .add(this.currPosition);
         this.body.applyImpulseAtPoint(
-          { x: latImpulse.x, y: latImpulse.y, z: latImpulse.z },
-          { x: gripPoint.x, y: gripPoint.y, z: gripPoint.z },
+          { x: _latImpulse.x, y: _latImpulse.y, z: _latImpulse.z },
+          { x: _gripPoint.x, y: _gripPoint.y, z: _gripPoint.z },
           true
         );
 
@@ -560,10 +575,10 @@ export class ArcadeVehicle {
         }
 
         if (Math.abs(longForce) > 0.01) {
-          const imp = wheelFwd.clone().multiplyScalar(longForce * dt);
+          _imp.copy(_wheelFwd).multiplyScalar(longForce * dt);
           this.body.applyImpulseAtPoint(
-            { x: imp.x, y: imp.y, z: imp.z },
-            { x: gripPoint.x, y: gripPoint.y, z: gripPoint.z },
+            { x: _imp.x, y: _imp.y, z: _imp.z },
+            { x: _gripPoint.x, y: _gripPoint.y, z: _gripPoint.z },
             true
           );
         }
@@ -586,8 +601,8 @@ export class ArcadeVehicle {
       const antiRollTorque =
         (frontRollDiff + rearRollDiff) * cfg.antiRollStrength * dt -
         rollRate * eff.mass * 1.65 * dt;
-      const rollVec = this.forwardDir.clone().multiplyScalar(antiRollTorque);
-      this.body.applyTorqueImpulse({ x: rollVec.x, y: rollVec.y, z: rollVec.z }, true);
+      _rollVec.copy(this.forwardDir).multiplyScalar(antiRollTorque);
+      this.body.applyTorqueImpulse({ x: _rollVec.x, y: _rollVec.y, z: _rollVec.z }, true);
     }
 
     // Downforce proportional to v^2 (§5.1)
@@ -602,10 +617,11 @@ export class ArcadeVehicle {
       if (options.allowControl) {
         const yawT = -steerInput * cfg.airYawTorque * dt;
         const pitchT = (throttle - brake) * cfg.airPitchTorque * dt;
-        const torque = new THREE.Vector3()
+        _torque
+          .set(0, 0, 0)
           .addScaledVector(this.upDir, yawT)
           .addScaledVector(this.rightDir, -pitchT * 0.6);
-        this.body.applyTorqueImpulse({ x: torque.x, y: torque.y, z: torque.z }, true);
+        this.body.applyTorqueImpulse({ x: _torque.x, y: _torque.y, z: _torque.z }, true);
       }
     }
 
@@ -631,23 +647,23 @@ export class ArcadeVehicle {
     const tiltDeg = THREE.MathUtils.radToDeg(Math.acos(Math.max(-1, Math.min(1, upDot))));
     if (this.hasRollCage && tiltDeg > 42) {
       // Roll Cage: never flips, instant gentle uprighting
-      const axis = new THREE.Vector3().crossVectors(this.upDir, _up);
-      if (axis.lengthSq() > 0.0001) {
-        axis.normalize();
+      _axis.crossVectors(this.upDir, _up);
+      if (_axis.lengthSq() > 0.0001) {
+        _axis.normalize();
         const strength = cfg.selfRightingTorque * 2.5 * dt;
         this.body.applyTorqueImpulse(
-          { x: axis.x * strength, y: axis.y * strength, z: axis.z * strength },
+          { x: _axis.x * strength, y: _axis.y * strength, z: _axis.z * strength },
           true
         );
       }
     } else if (tiltDeg > cfg.selfRightingAngleDeg) {
-      const axis = new THREE.Vector3().crossVectors(this.upDir, _up);
-      if (axis.lengthSq() > 0.0001) {
-        axis.normalize();
+      _axis.crossVectors(this.upDir, _up);
+      if (_axis.lengthSq() > 0.0001) {
+        _axis.normalize();
         const factor = Math.min(1.5, (tiltDeg - cfg.selfRightingAngleDeg) / 40);
         const strength = cfg.selfRightingTorque * factor * dt;
         this.body.applyTorqueImpulse(
-          { x: axis.x * strength, y: axis.y * strength, z: axis.z * strength },
+          { x: _axis.x * strength, y: _axis.y * strength, z: _axis.z * strength },
           true
         );
       }

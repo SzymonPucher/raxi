@@ -113,6 +113,14 @@ export class HUD {
   private readonly locationLandmarkEl: HTMLDivElement;
   private readonly locationStreetEl: HTMLDivElement;
   private lastLocKey = '';
+  private lastDraftDone = -1;
+  private lastPowersHtml = '';
+  private lastFareHtml = '';
+  private lastAbilitiesHtml = '';
+  private lastStopHtml = '';
+  private lastScoreVal = -1;
+  private lastWalletVal = -1;
+  private lastCondVal = -1;
   private readonly abilitiesRow: HTMLDivElement;
   private readonly speedNumEl: HTMLSpanElement;
   private readonly speedUnitEl: HTMLSpanElement;
@@ -323,8 +331,14 @@ export class HUD {
     }
 
     // Score & Wallet & Combo & Draft Dots
-    this.scoreVal.textContent = `$${shift.score.toLocaleString()}`;
-    this.walletVal.textContent = `$${shift.wallet.balance.toLocaleString()}`;
+    if (shift.score !== this.lastScoreVal) {
+      this.lastScoreVal = shift.score;
+      this.scoreVal.textContent = `$${shift.score.toLocaleString()}`;
+    }
+    if (shift.wallet.balance !== this.lastWalletVal) {
+      this.lastWalletVal = shift.wallet.balance;
+      this.walletVal.textContent = `$${shift.wallet.balance.toLocaleString()}`;
+    }
     if (shift.deliveryComboMult > 1.01) {
       this.comboBadge.style.display = 'inline-block';
       this.comboBadge.textContent = `DELIVERY COMBO ×${shift.deliveryComboMult.toFixed(2)}`;
@@ -336,20 +350,27 @@ export class HUD {
     }
 
     const doneInCycle = shift.deliveries % BALANCE.deliveriesPerDraft;
-    let dotsHtml = '';
-    for (let i = 0; i < BALANCE.deliveriesPerDraft; i++) {
-      dotsHtml += `<span class="draft-dot${i < doneInCycle ? ' filled' : ''}"></span>`;
+    if (doneInCycle !== this.lastDraftDone) {
+      this.lastDraftDone = doneInCycle;
+      let dotsHtml = '';
+      for (let i = 0; i < BALANCE.deliveriesPerDraft; i++) {
+        dotsHtml += `<span class="draft-dot${i < doneInCycle ? ' filled' : ''}"></span>`;
+      }
+      this.draftProgressEl.innerHTML = `${dotsHtml} <span>next power</span>`;
     }
-    this.draftProgressEl.innerHTML = `${dotsHtml} <span>next power</span>`;
 
     // Owned powers icons
     const owned = powerManager.getOwnedList();
-    this.ownedPowersEl.innerHTML = owned
+    const powersHtml = owned
       .map(
         (o) =>
           `<span class="hud-power-chip" title="${o.def.name}">${o.def.icon}${o.stacks > 1 ? `×${o.stacks}` : ''}</span>`
       )
       .join('');
+    if (powersHtml !== this.lastPowersHtml) {
+      this.lastPowersHtml = powersHtml;
+      this.ownedPowersEl.innerHTML = powersHtml;
+    }
 
     // Fare panel(s)
     this.renderFarePanels(shift.activeFares, data, powerManager);
@@ -372,7 +393,11 @@ export class HUD {
     if (data.stopProgress > 0.01) {
       this.stopBarEl.style.display = 'block';
       const pct = Math.min(100, Math.round(data.stopProgress * 100));
-      this.stopBarEl.innerHTML = `<div>${data.stopLabel}</div><div class="hud-bar-track" style="margin-top:4px"><div class="hud-bar-fill" style="width:${pct}%;background:#00e676"></div></div>`;
+      const stopHtml = `<div>${data.stopLabel}</div><div class="hud-bar-track" style="margin-top:4px"><div class="hud-bar-fill" style="width:${pct}%;background:#00e676"></div></div>`;
+      if (stopHtml !== this.lastStopHtml) {
+        this.lastStopHtml = stopHtml;
+        this.stopBarEl.innerHTML = stopHtml;
+      }
     } else {
       this.stopBarEl.style.display = 'none';
     }
@@ -390,11 +415,14 @@ export class HUD {
 
     // Car condition
     const cond = Math.round(shift.condition.condition);
-    this.condTextEl.textContent = `${cond}%`;
-    this.condBarEl.style.width = `${cond}%`;
-    this.condBarEl.style.background =
-      cond < 30 ? '#ff3d57' : cond < 60 ? '#ffab00' : '#00e676';
-    this.condWrapEl.classList.toggle('critical', cond < 30);
+    if (cond !== this.lastCondVal) {
+      this.lastCondVal = cond;
+      this.condTextEl.textContent = `${cond}%`;
+      this.condBarEl.style.width = `${cond}%`;
+      this.condBarEl.style.background =
+        cond < 30 ? '#ff3d57' : cond < 60 ? '#ffab00' : '#00e676';
+      this.condWrapEl.classList.toggle('critical', cond < 30);
+    }
 
     // Active ability slots
     this.renderAbilitySlots(powerManager);
@@ -445,35 +473,34 @@ export class HUD {
     data: HUDUpdateData,
     pm: PowerManager
   ): void {
+    let html: string;
     if (fares.length === 0) {
-      this.fareContainer.innerHTML = data.inBreakMode
+      html = data.inBreakMode
         ? `<div class="hud-fare-card"><div class="hud-fare-dest">🔧 GARAGE BREAK</div><div class="hud-fare-sub">Follow the cyan GPS route to any Raxi Garage, or press B to resume shift.</div></div>`
         : `<div class="hud-fare-card"><div class="hud-fare-dest">🚖 LOOKING FOR FARE</div><div class="hud-fare-sub">Stop in a colored ring: 🟢 Short • 🟡 Med • 🔴 Long<br/>Press <b>B</b> anytime (empty cab) for Garage Break.</div></div>`;
-      return;
-    }
+    } else {
+      const safetyMult = pm.stats.get('safety.penaltyMult');
+      const daredevilCurse = pm.isCurseActive('daredevil_license');
+      const extraStyleW = pm.has('daredevil_license') ? 0.3 : 0;
 
-    const safetyMult = pm.stats.get('safety.penaltyMult');
-    const daredevilCurse = pm.isCurseActive('daredevil_license');
-    const extraStyleW = pm.has('daredevil_license') ? 0.3 : 0;
+      html = fares
+        .map((fare) => {
+          const ratings = evaluateFareRatings(fare, safetyMult, daredevilCurse, extraStyleW);
+          const dist = Math.round(Math.hypot(fare.destinationX - data.playerX, fare.destinationZ - data.playerZ));
+          const pat = Math.round(getFarePatienceFraction(fare) * 100);
+          const w = fare.passenger.weights;
+          const isGrandma = fare.passenger.id === 'grandma';
 
-    this.fareContainer.innerHTML = fares
-      .map((fare) => {
-        const ratings = evaluateFareRatings(fare, safetyMult, daredevilCurse, extraStyleW);
-        const dist = Math.round(Math.hypot(fare.destinationX - data.playerX, fare.destinationZ - data.playerZ));
-        const pat = Math.round(getFarePatienceFraction(fare) * 100);
-        const w = fare.passenger.weights;
-        const isGrandma = fare.passenger.id === 'grandma';
-
-        const rulesHtml = isGrandma
-          ? `<div class="hud-rules-checklist">
+          const rulesHtml = isGrandma
+            ? `<div class="hud-rules-checklist">
               <span class="${data.rulesChecklist.redLights === 0 ? 'rule-ok' : 'rule-fail'}">🚦 Lights ${data.rulesChecklist.redLights === 0 ? '✓' : `✗${data.rulesChecklist.redLights}`}</span>
               <span class="${data.rulesChecklist.blinkers === 0 ? 'rule-ok' : 'rule-fail'}">◀▶ Blinkers ${data.rulesChecklist.blinkers === 0 ? '✓' : `✗${data.rulesChecklist.blinkers}`}</span>
               <span class="${data.rulesChecklist.speeding === 0 ? 'rule-ok' : 'rule-fail'}">🐢 Speed ${data.rulesChecklist.speeding === 0 ? '✓' : `✗${data.rulesChecklist.speeding}`}</span>
               <span class="${fare.accidents === 0 ? 'rule-ok' : 'rule-fail'}">🛡️ Safe ${fare.accidents === 0 ? '✓' : `✗${fare.accidents}`}</span>
             </div>`
-          : '';
+            : '';
 
-        return `
+          return `
           <div class="hud-fare-card">
             <div class="hud-fare-header">
               <div class="hud-fare-emoji">${fare.passenger.emoji}</div>
@@ -505,13 +532,18 @@ export class HUD {
             ${rulesHtml}
           </div>
         `;
-      })
-      .join('');
+        })
+        .join('');
+    }
+    if (html !== this.lastFareHtml) {
+      this.lastFareHtml = html;
+      this.fareContainer.innerHTML = html;
+    }
   }
 
   private renderAbilitySlots(pm: PowerManager): void {
     const keys = ['Q', 'E'];
-    this.abilitiesRow.innerHTML = pm.activeSlots
+    const html = pm.activeSlots
       .map((slot, idx) => {
         if (!slot) {
           return `<div class="hud-ability-slot"><span class="hud-ability-key">${keys[idx]}</span><span class="hud-ability-icon" style="opacity:0.25">—</span><span class="hud-ability-name">Empty</span></div>`;
@@ -535,5 +567,9 @@ export class HUD {
         `;
       })
       .join('');
+    if (html !== this.lastAbilitiesHtml) {
+      this.lastAbilitiesHtml = html;
+      this.abilitiesRow.innerHTML = html;
+    }
   }
 }
