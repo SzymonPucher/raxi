@@ -364,7 +364,7 @@ export class HUD {
   ): void {
     if (fares.length === 0) {
       this.fareContainer.innerHTML = data.inBreakMode
-        ? `<div class="hud-fare-card"><div class="hud-fare-dest">🔧 GARAGE BREAK</div><div class="hud-fare-sub">Follow the cyan arrow to any Raxi Garage, or press B to resume shift.</div></div>`
+        ? `<div class="hud-fare-card"><div class="hud-fare-dest">🔧 GARAGE BREAK</div><div class="hud-fare-sub">Follow the cyan GPS route to any Raxi Garage, or press B to resume shift.</div></div>`
         : `<div class="hud-fare-card"><div class="hud-fare-dest">🚖 LOOKING FOR FARE</div><div class="hud-fare-sub">Stop in a colored ring: 🟢 Short • 🟡 Med • 🔴 Long<br/>Press <b>B</b> anytime (empty cab) for Garage Break.</div></div>`;
       return;
     }

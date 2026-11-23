@@ -42,6 +42,8 @@ export class RulesTracker {
   public checklist: RulesChecklist = { redLights: 0, blinkers: 0, speeding: 0, oncoming: 0 };
 
   private lastEdgeId: string | null = null;
+  private lastEdgeDirX = 0;
+  private lastEdgeDirZ = 1;
   private lastLaneIndex: number | null = null;
   private oncomingTimer = 0;
   private oncomingTriggered = false;
@@ -99,24 +101,32 @@ export class RulesTracker {
     }
 
     const strict = Math.max(0, sample.ruleStrictness);
+    const inIntersectionZone = proj.distToNearestNode < 16.0;
+    const alignedWithRoad = Math.abs(proj.headingDot) >= 0.72;
 
-    // 1. Detect intersection turns (edge changed) -> auto-cancel blinker & give +5 style if blinker was on!
+    // 1. Detect intersection transitions (edge changed)
     if (this.lastEdgeId !== null && this.lastEdgeId !== proj.edge.id) {
-      if (sample.blinker !== 'off') {
+      const axisDot = Math.abs(this.lastEdgeDirX * proj.dirX + this.lastEdgeDirZ * proj.dirZ);
+      const actuallyTurned = axisDot < 0.85;
+      if (actuallyTurned && sample.blinker !== 'off') {
         shouldCancelBlinker = true;
         blinkerTurnStyleBonus = true;
       }
       this.lastLaneIndex = proj.laneIndex;
     } else if (
+      !inIntersectionZone &&
+      alignedWithRoad &&
       this.lastEdgeId === proj.edge.id &&
       this.lastLaneIndex !== null &&
       this.lastLaneIndex !== proj.laneIndex &&
       sample.speed > 4 &&
       this.laneViolationCooldown <= 0
     ) {
-      // 2. Lane change on same road edge
-      const movedRight = proj.laneIndex > this.lastLaneIndex;
-      const expectedBlinker: BlinkerSide = movedRight ? 'right' : 'left';
+      // 2. Lane change on same road edge outside intersections
+      // Account for travel direction along edge so left/right matches player's perspective
+      const travelSign = proj.headingDot >= 0 ? 1 : -1;
+      const movedRightFromDriverView = (proj.laneIndex - this.lastLaneIndex) * travelSign > 0;
+      const expectedBlinker: BlinkerSide = movedRightFromDriverView ? 'right' : 'left';
       const hadProperBlinker =
         sample.blinker === expectedBlinker && sample.blinkerOnTime >= BALANCE.ruleBlinkerLeadTime;
 
@@ -131,6 +141,8 @@ export class RulesTracker {
     }
 
     this.lastEdgeId = proj.edge.id;
+    this.lastEdgeDirX = proj.dirX;
+    this.lastEdgeDirZ = proj.dirZ;
     this.lastLaneIndex = proj.laneIndex;
 
     // 3. Running a red light (§9.5: crossing stop line while red & not already inside junction when it turned)

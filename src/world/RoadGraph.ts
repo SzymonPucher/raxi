@@ -55,6 +55,10 @@ export interface RoadProjection {
   isOncoming: boolean;
   /** Distance to the upcoming node in the car's heading direction */
   distToAheadNode: number;
+  /** Distance to the closest endpoint node of this edge (small inside intersections) */
+  distToNearestNode: number;
+  /** Signed dot product of car heading with edge direction (from->to) */
+  headingDot: number;
   aheadNode: RoadNode;
 }
 
@@ -256,7 +260,13 @@ export class RoadGraph {
     headingZ = -1,
     maxDistance = 18
   ): RoadProjection | null {
+    const headingLen = Math.hypot(headingX, headingZ);
+    const hasHeading = headingLen > 0.01;
+    const hnx = hasHeading ? headingX / headingLen : 0;
+    const hnz = hasHeading ? headingZ / headingLen : -1;
+
     let bestEdge: RoadEdge | null = null;
+    let bestScore = Infinity;
     let bestDistSq = maxDistance * maxDistance;
     let bestT = 0;
     let bestCX = 0;
@@ -276,7 +286,20 @@ export class RoadGraph {
       const cx = a.x + dx * t;
       const cz = a.z + dz * t;
       const distSq = (x - cx) * (x - cx) + (z - cz) * (z - cz);
-      if (distSq < bestDistSq) {
+      if (distSq > maxDistance * maxDistance) continue;
+
+      const dist = Math.sqrt(distSq);
+      let score = dist;
+      if (hasHeading) {
+        const len = Math.sqrt(lenSq);
+        const align = Math.abs((dx / len) * hnx + (dz / len) * hnz);
+        // Prefer road edge aligned with vehicle heading so going straight across intersections
+        // never snaps onto the perpendicular cross-street
+        score += (1 - align) * 9.0;
+      }
+
+      if (score < bestScore) {
+        bestScore = score;
         bestDistSq = distSq;
         bestEdge = e;
         bestT = t;
@@ -302,7 +325,7 @@ export class RoadGraph {
     const laneWidth = halfWidth / Math.max(1, bestEdge.lanesPerDir);
     const laneIndex = Math.floor(signedLateral / Math.max(1.5, laneWidth));
 
-    const headingDot = headingX * dirX + headingZ * dirZ;
+    const headingDot = hnx * dirX + hnz * dirZ;
     const movingAlongForward = headingDot >= 0;
 
     // Oncoming if firmly on the opposite half of a two-way road
@@ -314,6 +337,7 @@ export class RoadGraph {
 
     const aheadNode = movingAlongForward ? b : a;
     const distToAheadNode = movingAlongForward ? (1 - bestT) * len2D : bestT * len2D;
+    const distToNearestNode = Math.min(bestT * len2D, (1 - bestT) * len2D);
 
     return {
       edge: bestEdge,
@@ -333,6 +357,8 @@ export class RoadGraph {
       laneIndex,
       isOncoming,
       distToAheadNode,
+      distToNearestNode,
+      headingDot,
       aheadNode,
     };
   }

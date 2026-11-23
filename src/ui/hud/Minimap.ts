@@ -71,16 +71,6 @@ export class Minimap {
       (wz - params.playerZ) * scale,
     ];
 
-    // River
-    const [rx0, rz0] = toLocal(params.map.riverLine.x0, params.map.riverLine.z0);
-    const [rx1, rz1] = toLocal(params.map.riverLine.x1, params.map.riverLine.z1);
-    ctx.strokeStyle = 'rgba(36, 146, 209, 0.55)';
-    ctx.lineWidth = params.map.riverLine.halfWidth * 2 * scale;
-    ctx.beginPath();
-    ctx.moveTo(rx0, rz0);
-    ctx.lineTo(rx1, rz1);
-    ctx.stroke();
-
     // Roads
     for (const e of params.map.graph.edges) {
       const a = params.map.graph.getNode(e.from)!;

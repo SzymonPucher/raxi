@@ -4,6 +4,7 @@ import { CarCondition } from '../src/gameplay/CarCondition';
 import { RulesTracker } from '../src/gameplay/RulesTracker';
 import { ShiftTimer } from '../src/gameplay/ShiftTimer';
 import { Wallet } from '../src/gameplay/Wallet';
+import { createMapDefinition } from '../src/world/mapData';
 import { RoadProjection } from '../src/world/RoadGraph';
 
 function makeProjection(overrides: Partial<RoadProjection> = {}): RoadProjection {
@@ -37,6 +38,8 @@ function makeProjection(overrides: Partial<RoadProjection> = {}): RoadProjection
     laneIndex: 0,
     isOncoming: false,
     distToAheadNode: 30,
+    distToNearestNode: 30,
+    headingDot: 1,
     aheadNode: toNode,
     ...overrides,
   };
@@ -158,5 +161,25 @@ describe('ShiftTimer, Wallet, CarCondition, BreakMode & RulesTracker', () => {
     });
     expect(signaled.violations.length).toBe(0);
     expect(signaled.shouldCancelBlinker).toBe(true);
+  });
+
+  it('does not issue a no-blinker penalty when driving straight through an intersection', () => {
+    const map = createMapDefinition();
+    const rules = new RulesTracker();
+    // Drive straight north in the right-hand lane (x = 3.2) from z = 140 through intersection (0, 100) to z = 60
+    for (let z = 140; z >= 60; z -= 2) {
+      const proj = map.graph.projectPoint(3.2, z, 0, -1);
+      const res = rules.update({
+        dt: 0.12,
+        speed: 12,
+        projection: proj,
+        blinker: 'off',
+        blinkerOnTime: 0,
+        upcomingLightRed: false,
+        ruleStrictness: 1.0,
+      });
+      expect(res.violations.filter((v) => v.kind === 'noBlinker')).toEqual([]);
+    }
+    expect(rules.checklist.blinkers).toBe(0);
   });
 });

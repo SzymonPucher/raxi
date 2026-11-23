@@ -1,12 +1,11 @@
 import * as THREE from 'three';
 import { CG } from '../physics/collisionGroups';
 import { PhysicsWorld } from '../physics/PhysicsWorld';
-import { MapDefinition, distToRiver, getTerrainHeight } from './mapData';
+import { MapDefinition, getTerrainHeight } from './mapData';
 
 /**
- * Generates the low-res terrain mesh (~128x128) across the 2.4x2.4 km map
- * with roads carved/flattened smoothly to road elevations (§6.2),
- * plus ocean & diagonal river planes and perimeter mountain walls.
+ * Generates the low-res terrain mesh across the 2.4x2.4 km map
+ * with roads carved/flattened smoothly to road elevations and perimeter walls.
  */
 export function buildTerrain(
   map: MapDefinition,
@@ -39,19 +38,10 @@ export function buildTerrain(
       }
     }
 
-    // Carve river bed slightly below water level
-    const rDist = distToRiver(x, z);
-    if (rDist < map.riverLine.halfWidth + 6 && Math.abs(x) < 620 && Math.abs(z) < 620) {
-      const rf = Math.max(0, 1 - rDist / (map.riverLine.halfWidth + 6));
-      y = Math.min(y, -3.2 * rf);
-    }
-
     pos.setY(i, y);
 
     // Vertex colors per zone (2012 bright cartoony palette §6.4)
-    if (x > 840 || z > 840) {
-      c.setHex(0xe8d59e); // sandy beach
-    } else if (x >= map.parkBounds.minX && x <= map.parkBounds.maxX && z >= map.parkBounds.minZ && z <= map.parkBounds.maxZ) {
+    if (x >= map.parkBounds.minX && x <= map.parkBounds.maxX && z >= map.parkBounds.minZ && z <= map.parkBounds.maxZ) {
       c.setHex(0x52b755); // vibrant central park grass
     } else if (Math.abs(x) <= 550 && Math.abs(z) <= 550) {
       if (x > 190) {
@@ -87,14 +77,6 @@ export function buildTerrain(
   const idxAttr = geo.index!;
   const indices = new Uint32Array(idxAttr.array);
   const col = physics.createStaticTrimesh(vertices, indices, { kind: 'ground' }, CG.GROUND);
-
-  // Water plane (ocean + river)
-  const waterGeo = new THREE.PlaneGeometry(size * 1.4, size * 1.4);
-  waterGeo.rotateX(-Math.PI * 0.5);
-  const waterMat = new THREE.MeshLambertMaterial({ color: 0x2492d1 });
-  const water = new THREE.Mesh(waterGeo, waterMat);
-  water.position.y = -1.4;
-  group.add(water);
 
   // Invisible boundary walls at ±1140 so car never drives off the world (§6.1)
   const bound = map.worldHalfSize - 60;

@@ -407,8 +407,10 @@ export class ArcadeVehicle {
         const cancelFraction = Math.min(0.95, wheelGrip * (handbrake && !w.isFront ? 0.35 : 0.42));
         const latImpulseMag = -wheelLatVel * wheelMassShare * cancelFraction;
         const latImpulse = wheelRight.clone().multiplyScalar(latImpulseMag);
-        // Apply near COM height to prevent flipping in high-speed cornering (§5.3)
-        const gripPoint = mountWorld.clone().addScaledVector(this.upDir, 0.15);
+        // Apply at COM vertical height (zero local Y offset) so sharp cornering never tips the car
+        const gripPoint = new THREE.Vector3(w.localMount.x, 0, w.localMount.z)
+          .applyQuaternion(this.currQuaternion)
+          .add(this.currPosition);
         this.body.applyImpulseAtPoint(
           { x: latImpulse.x, y: latImpulse.y, z: latImpulse.z },
           { x: gripPoint.x, y: gripPoint.y, z: gripPoint.z },
@@ -472,12 +474,16 @@ export class ArcadeVehicle {
       }
     }
 
-    // Anti-roll bars (front FL-FR, rear RL-RR)
-    if (groundedCount >= 2) {
+    // Anti-roll bars + roll angular velocity damping (front FL-FR, rear RL-RR)
+    // Positive torque around forwardDir (-Z) lifts left (-X) and presses right (+X)
+    if (groundedCount >= 1) {
       const frontRollDiff = comps[0] - comps[1];
       const rearRollDiff = comps[2] - comps[3];
-      const antiRollTorque = (frontRollDiff + rearRollDiff) * cfg.antiRollStrength * dt;
-      const rollVec = this.forwardDir.clone().multiplyScalar(-antiRollTorque);
+      const rollRate = ang.x * this.forwardDir.x + ang.y * this.forwardDir.y + ang.z * this.forwardDir.z;
+      const antiRollTorque =
+        (frontRollDiff + rearRollDiff) * cfg.antiRollStrength * dt -
+        rollRate * eff.mass * 1.65 * dt;
+      const rollVec = this.forwardDir.clone().multiplyScalar(antiRollTorque);
       this.body.applyTorqueImpulse({ x: rollVec.x, y: rollVec.y, z: rollVec.z }, true);
     }
 
@@ -568,14 +574,14 @@ export class ArcadeVehicle {
       this.resetHoldTimer = 0;
     }
 
-    // Visual body roll & pitch (exaggerated, cosmetic §5.4)
+    // Visual body roll & pitch (subtle sporty feedback)
     const accelG = (this.forwardSpeed - this.prevForwardSpeed) / Math.max(0.001, dt);
     this.prevForwardSpeed = this.forwardSpeed;
-    const targetPitch = THREE.MathUtils.clamp(-accelG * 0.006, -0.1, 0.1);
+    const targetPitch = THREE.MathUtils.clamp(-accelG * 0.0045, -0.075, 0.075);
     const targetRoll = THREE.MathUtils.clamp(
-      (steerInput * Math.min(1, this.speed / 22) * 0.12) + this.lateralSpeed * 0.007,
-      -0.16,
-      0.16
+      (steerInput * Math.min(1, this.speed / 24) * 0.08) + this.lateralSpeed * 0.004,
+      -0.1,
+      0.1
     );
     this.visualPitch = THREE.MathUtils.lerp(this.visualPitch, targetPitch, Math.min(1, dt * 8));
     this.visualRoll = THREE.MathUtils.lerp(this.visualRoll, targetRoll, Math.min(1, dt * 8));

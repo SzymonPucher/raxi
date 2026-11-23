@@ -5,7 +5,7 @@ import { PhysicsWorld } from '../physics/PhysicsWorld';
 import { ArcadeVehicle } from '../vehicle/ArcadeVehicle';
 import { MapDefinition } from '../world/mapData';
 import { RoadEdge } from '../world/RoadGraph';
-import { TrafficCar } from './TrafficCar';
+import { TrafficCar, TrafficTurnCurve } from './TrafficCar';
 import { TrafficLights } from './TrafficLights';
 
 export interface NearMissHit {
@@ -13,10 +13,53 @@ export interface NearMissHit {
   distance: number;
 }
 
+function getTurnMargin(edgeLength: number): number {
+  return Math.min(10.5, edgeLength * 0.28);
+}
+
+function sampleBezier(
+  p0x: number,
+  p0z: number,
+  p1x: number,
+  p1z: number,
+  p2x: number,
+  p2z: number,
+  u: number
+): { x: number; z: number; tx: number; tz: number } {
+  const omt = 1 - u;
+  const x = omt * omt * p0x + 2 * omt * u * p1x + u * u * p2x;
+  const z = omt * omt * p0z + 2 * omt * u * p1z + u * u * p2z;
+  const tx = 2 * omt * (p1x - p0x) + 2 * u * (p2x - p1x);
+  const tz = 2 * omt * (p1z - p0z) + 2 * u * (p2z - p1z);
+  return { x, z, tx, tz };
+}
+
+function computeBezierArcLength(
+  p0x: number,
+  p0z: number,
+  p1x: number,
+  p1z: number,
+  p2x: number,
+  p2z: number
+): number {
+  const steps = 10;
+  let total = 0;
+  let prevX = p0x;
+  let prevZ = p0z;
+  for (let s = 1; s <= steps; s++) {
+    const pt = sampleBezier(p0x, p0z, p1x, p1z, p2x, p2z, s / steps);
+    total += Math.hypot(pt.x - prevX, pt.z - prevZ);
+    prevX = pt.x;
+    prevZ = pt.z;
+  }
+  return Math.max(1.0, total);
+}
+
 /**
  * Pooled traffic manager (§7.1):
  * - 34..60 active cars around the player (scales with tier, Rush Hour, and traffic.density)
- * - Lane following, red-light stopping, following distance braking, stuck timeout -> despawn
+ * - Smooth quadratic Bezier turns through intersections (left, right, straight, U-turns at dead ends)
+ * - Red-light stopping without despawning; stuck despawn only when truly gridlocked & out of close view
  * - Knocked dynamic physics on collision or Shockwave
  * - Horn reaction (stronger with Loud Horn)
  * - Near-miss detection
@@ -152,83 +195,11 @@ export class TrafficManager {
         continue;
       }
 
-      // Despawn when too far
+      // Despawn when far out of range
       const distPlayerSq = (c.x - px) ** 2 + (c.z - pz) ** 2;
       if (distPlayerSq > despawnSq) {
         c.despawn();
         continue;
-      }
-
-      const edge = c.edge;
-      if (!edge || edge.blocked) {
-        c.despawn();
-        continue;
-      }
-
-      const fromN = this.map.graph.getNode(c.forward ? edge.from : edge.to)!;
-      const toN = this.map.graph.getNode(c.forward ? edge.to : edge.from)!;
-      const dx = toN.x - fromN.x;
-      const dz = toN.z - fromN.z;
-      const len = Math.max(0.01, Math.hypot(dx, dz));
-      const dirX = dx / len;
-      const dirZ = dz / len;
-      const rightX = -dirZ;
-      const rightZ = dirX;
-
-      // Determine desired speed (respect red light, car ahead, player ahead)
-      let desiredSpeed = edge.speedLimit * 0.85;
-      const distToEnd = len - c.progress;
-
-      // Red light check before stop line
-      if (
-        toN.hasTrafficLight &&
-        distToEnd < 20 &&
-        distToEnd > 8.5 &&
-        this.lights.isRedForDirection(toN.id, dirX, dirZ)
-      ) {
-        desiredSpeed = 0;
-      }
-
-      // Brake for another traffic car directly ahead
-      for (let j = 0; j < this.cars.length; j++) {
-        if (i === j) continue;
-        const o = this.cars[j];
-        if (!o.active || o.knocked) continue;
-        const ox = o.x - c.x;
-        const oz = o.z - c.z;
-        const ahead = ox * dirX + oz * dirZ;
-        if (ahead > 2 && ahead < 16) {
-          const lat = Math.abs(ox * rightX + oz * rightZ);
-          if (lat < 2.2) {
-            desiredSpeed = Math.min(desiredSpeed, Math.max(0, (ahead - 7) * 1.4));
-          }
-        }
-      }
-
-      // Brake gently if player is directly in front
-      const pdx = px - c.x;
-      const pdz = pz - c.z;
-      const pAhead = pdx * dirX + pdz * dirZ;
-      if (pAhead > 2 && pAhead < 14) {
-        const pLat = Math.abs(pdx * rightX + pdz * rightZ);
-        if (pLat < 2.2) {
-          desiredSpeed = Math.min(desiredSpeed, 0);
-        }
-      }
-
-      // Smooth accel / braking
-      const rate = desiredSpeed > c.speed ? 6.5 : 14.0;
-      c.speed += Math.sign(desiredSpeed - c.speed) * Math.min(Math.abs(desiredSpeed - c.speed), rate * dt);
-
-      // Stuck timeout -> despawn (prevents permanent intersection gridlock, M4 acceptance!)
-      if (c.speed < 0.8) {
-        c.stuckTimer += dt;
-        if (c.stuckTimer >= BALANCE.trafficStuckTimeout) {
-          c.despawn();
-          continue;
-        }
-      } else {
-        c.stuckTimer = 0;
       }
 
       // Horn swerve decay
@@ -237,58 +208,193 @@ export class TrafficManager {
         if (c.swerveTimer <= 0) c.swerveOffset = 0;
       }
 
-      c.progress += c.speed * dt;
+      // Compute current heading basis for braking/yielding checks
+      let dirX = c.dirX;
+      let dirZ = c.dirZ;
+      let desiredSpeed = 12;
+      let waitingAtRedLight = false;
 
-      // Reached intersection -> choose next road edge
-      if (c.progress >= len) {
-        const adj = this.map.graph.adjacency.get(toN.id) ?? [];
-        const options = adj.filter(
-          (a) => a.edge.id !== edge.id && !a.edge.isShortcut && !a.edge.blocked
-        );
-        if (options.length === 0) {
+      if (c.turn) {
+        desiredSpeed = c.turn.isSharpTurn
+          ? Math.min(c.turn.nextEdge.speedLimit * 0.7, 9.0)
+          : c.turn.nextEdge.speedLimit * 0.85;
+      } else {
+        const edge = c.edge;
+        if (!edge || edge.blocked) {
+          // Only despawn blocked-road cars if out of immediate sight, else U-turn cleanly
+          if (distPlayerSq > 50 * 50 || !edge) {
+            c.despawn();
+            continue;
+          }
+          c.forward = !c.forward;
+          c.progress = Math.max(1, edge.length - c.progress);
+        }
+
+        const curEdge = c.edge!;
+        const fromN = this.map.graph.getNode(c.forward ? curEdge.from : curEdge.to)!;
+        const toN = this.map.graph.getNode(c.forward ? curEdge.to : curEdge.from)!;
+        const dx = toN.x - fromN.x;
+        const dz = toN.z - fromN.z;
+        const len = Math.max(0.01, Math.hypot(dx, dz));
+        dirX = dx / len;
+        dirZ = dz / len;
+
+        desiredSpeed = curEdge.speedLimit * 0.85;
+        const turnMargin = getTurnMargin(len);
+        const distToStopLine = len - turnMargin - c.progress;
+
+        // Stop neatly BEFORE the intersection stop line on a red light
+        if (
+          toN.hasTrafficLight &&
+          distToStopLine > -1.0 &&
+          distToStopLine < 14.0 &&
+          this.lights.isRedForDirection(toN.id, dirX, dirZ)
+        ) {
+          desiredSpeed = Math.min(desiredSpeed, Math.max(0, (distToStopLine - 1.5) * 1.1));
+          if (distToStopLine <= 3.0) {
+            desiredSpeed = 0;
+            waitingAtRedLight = true;
+          }
+        }
+      }
+
+      const rightX = -dirZ;
+      const rightZ = dirX;
+
+      // Brake for another traffic car directly ahead along current heading
+      for (let j = 0; j < this.cars.length; j++) {
+        if (i === j) continue;
+        const o = this.cars[j];
+        if (!o.active || o.knocked) continue;
+        const ox = o.x - c.x;
+        const oz = o.z - c.z;
+        const ahead = ox * dirX + oz * dirZ;
+        if (ahead > 1.5 && ahead < 16) {
+          const lat = Math.abs(ox * rightX + oz * rightZ);
+          if (lat < 2.25) {
+            // Check if the other car is moving in roughly the same or crossing direction
+            const headDot = o.dirX * dirX + o.dirZ * dirZ;
+            if (headDot > -0.4) {
+              const safeGap = (c.spec.l + o.spec.l) * 0.5 + 2.4;
+              desiredSpeed = Math.min(desiredSpeed, Math.max(0, (ahead - safeGap) * 1.5));
+            }
+          }
+        }
+      }
+
+      // Brake gently if player is directly in front
+      const pdx = px - c.x;
+      const pdz = pz - c.z;
+      const pAhead = pdx * dirX + pdz * dirZ;
+      if (pAhead > 1.5 && pAhead < 14) {
+        const pLat = Math.abs(pdx * rightX + pdz * rightZ);
+        if (pLat < 2.3) {
+          desiredSpeed = Math.min(desiredSpeed, 0);
+        }
+      }
+
+      // Smooth accel / braking
+      const rate = desiredSpeed > c.speed ? 6.8 : 15.0;
+      c.speed += Math.sign(desiredSpeed - c.speed) * Math.min(Math.abs(desiredSpeed - c.speed), rate * dt);
+
+      // Stuck timeout: NEVER despawn while waiting at a red light, and only despawn gridlocked cars far from player!
+      if (c.speed < 0.6 && !waitingAtRedLight) {
+        c.stuckTimer += dt;
+        if (c.stuckTimer >= BALANCE.trafficStuckTimeout + 10 && distPlayerSq > 65 * 65) {
           c.despawn();
           continue;
         }
-        const pick = rng.pick(options);
-        c.edge = pick.edge;
-        c.forward = pick.edge.from === toN.id;
-        c.progress = 1.0;
-        const maxLane = Math.max(1, pick.edge.lanesPerDir);
-        const laneIdx = rng.int(0, maxLane - 1);
-        const laneW = (pick.edge.width * 0.5) / maxLane;
-        c.laneOffset = (laneIdx + 0.5) * laneW;
+      } else {
+        c.stuckTimer = 0;
       }
 
-      const curEdge = c.edge!;
-      const curFrom = this.map.graph.getNode(c.forward ? curEdge.from : curEdge.to)!;
-      const curTo = this.map.graph.getNode(c.forward ? curEdge.to : curEdge.from)!;
-      const cdx = curTo.x - curFrom.x;
-      const cdy = curTo.y - curFrom.y;
-      const cdz = curTo.z - curFrom.z;
-      const clen = Math.max(0.01, Math.hypot(cdx, cdz));
-      const cdirX = cdx / clen;
-      const cdirZ = cdz / clen;
-      const crightX = -cdirZ;
-      const crightZ = cdirX;
-      const tFrac = Math.min(1, c.progress / clen);
-      const lat = c.laneOffset + c.swerveOffset;
+      let nx = c.x;
+      let ny = c.y;
+      let nz = c.z;
+      let nyaw = c.yaw;
+      let moveDirX = dirX;
+      let moveDirZ = dirZ;
 
-      const nx = curFrom.x + cdx * tFrac + crightX * lat;
-      const ny = curFrom.y + cdy * tFrac + c.spec.h * 0.5 + 0.1;
-      const nz = curFrom.z + cdz * tFrac + crightZ * lat;
-      const nyaw = Math.atan2(-cdirX, -cdirZ);
+      if (c.turn) {
+        // Follow smooth quadratic Bezier curve through the intersection!
+        const turn = c.turn;
+        turn.distTraveled += c.speed * dt;
+        const u = Math.min(1, turn.distTraveled / turn.arcLength);
+        const pt = sampleBezier(turn.p0x, turn.p0z, turn.p1x, turn.p1z, turn.p2x, turn.p2z, u);
+        const tLen = Math.hypot(pt.tx, pt.tz);
+        if (tLen > 0.001) {
+          moveDirX = pt.tx / tLen;
+          moveDirZ = pt.tz / tLen;
+        }
+        nx = pt.x;
+        ny = turn.y0 + (turn.y2 - turn.y0) * u + c.spec.h * 0.5 + 0.12;
+        nz = pt.z;
+        nyaw = Math.atan2(-moveDirX, -moveDirZ);
+
+        if (u >= 1) {
+          // Seamlessly hand off onto the outgoing road edge with zero jump!
+          c.edge = turn.nextEdge;
+          c.forward = turn.nextForward;
+          c.laneOffset = turn.nextLaneOffset;
+          c.progress = turn.nextStartProgress;
+          c.turn = null;
+        }
+      } else {
+        const edge = c.edge!;
+        const fromN = this.map.graph.getNode(c.forward ? edge.from : edge.to)!;
+        const toN = this.map.graph.getNode(c.forward ? edge.to : edge.from)!;
+        const dx = toN.x - fromN.x;
+        const dy = toN.y - fromN.y;
+        const dz = toN.z - fromN.z;
+        const len = Math.max(0.01, Math.hypot(dx, dz));
+        const turnMargin = getTurnMargin(len);
+
+        c.progress += c.speed * dt;
+
+        // Reached intersection entry -> start smooth Bezier turn/crossing curve!
+        if (c.progress >= len - turnMargin) {
+          const turnCurve = this.createIntersectionTurn(c, edge, fromN, toN, len, turnMargin, rng);
+          c.turn = turnCurve;
+          const pt = sampleBezier(
+            turnCurve.p0x,
+            turnCurve.p0z,
+            turnCurve.p1x,
+            turnCurve.p1z,
+            turnCurve.p2x,
+            turnCurve.p2z,
+            0
+          );
+          nx = pt.x;
+          ny = turnCurve.y0 + c.spec.h * 0.5 + 0.12;
+          nz = pt.z;
+          moveDirX = dx / len;
+          moveDirZ = dz / len;
+          nyaw = Math.atan2(-moveDirX, -moveDirZ);
+        } else {
+          const tFrac = Math.max(0, Math.min(1, c.progress / len));
+          moveDirX = dx / len;
+          moveDirZ = dz / len;
+          const rx = -moveDirZ;
+          const rz = moveDirX;
+          const lat = c.laneOffset + c.swerveOffset;
+          nx = fromN.x + dx * tFrac + rx * lat;
+          ny = fromN.y + dy * tFrac + c.spec.h * 0.5 + 0.12;
+          nz = fromN.z + dz * tFrac + rz * lat;
+          nyaw = Math.atan2(-moveDirX, -moveDirZ);
+        }
+      }
 
       c.setKinematicPose(nx, ny, nz, nyaw);
 
-      // Near miss check (§9.4: within 1.2m clearance at > 15 m/s relative speed)
+      // Near miss check (§9.4)
       if (detectNearMisses && c.nearMissCooldown <= 0 && !player.isGhost) {
         const halfSumX = (c.spec.w + 1.9) * 0.5;
         const halfSumZ = (c.spec.l + 4.4) * 0.5;
         const dist = Math.hypot(px - nx, pz - nz);
         const clearance = dist - Math.min(halfSumX, halfSumZ);
         if (clearance > 0.1 && clearance <= BALANCE.styleNearMissRadius + 1.4) {
-          const tvx = cdirX * c.speed;
-          const tvz = cdirZ * c.speed;
+          const tvx = moveDirX * c.speed;
+          const tvz = moveDirZ * c.speed;
           const relSpeed = Math.hypot(player.velocity.x - tvx, player.velocity.z - tvz);
           if (relSpeed >= BALANCE.styleNearMissRelSpeed) {
             c.nearMissCooldown = 3.0;
@@ -301,11 +407,131 @@ export class TrafficManager {
     return nearMisses;
   }
 
+  /**
+   * Builds a smooth C1-continuous quadratic Bezier curve from the incoming stop line
+   * to the outgoing road lane (supports straight crossings, right/left turns, and dead-end U-turns).
+   */
+  private createIntersectionTurn(
+    c: TrafficCar,
+    edge: RoadEdge,
+    fromN: { x: number; y: number; z: number; id: string },
+    toN: { x: number; y: number; z: number; id: string },
+    edgeLen: number,
+    inMargin: number,
+    rng: Rng
+  ): TrafficTurnCurve {
+    const d0x = (toN.x - fromN.x) / edgeLen;
+    const d0z = (toN.z - fromN.z) / edgeLen;
+    const r0x = -d0z;
+    const r0z = d0x;
+
+    // Entry point right at the stop line on the incoming lane
+    const lat0 = c.laneOffset + c.swerveOffset * 0.35;
+    const p0x = toN.x - d0x * inMargin + r0x * lat0;
+    const p0z = toN.z - d0z * inMargin + r0z * lat0;
+    const y0 = fromN.y + (toN.y - fromN.y) * ((edgeLen - inMargin) / edgeLen);
+
+    const adj = this.map.graph.adjacency.get(toN.id) ?? [];
+    const options = adj.filter(
+      (a) => a.edge.id !== edge.id && !a.edge.isShortcut && !a.edge.blocked
+    );
+
+    let nextEdge: RoadEdge;
+    let nextForward: boolean;
+
+    if (options.length === 0) {
+      // Dead end (e.g. riverbank): perform a smooth U-turn back onto the opposite lane instead of disappearing!
+      nextEdge = edge;
+      nextForward = !c.forward;
+    } else {
+      // Weight choices nicely: ~50% straight when available, ~50% left/right turns
+      const weights = options.map((opt) => {
+        const destN = this.map.graph.getNode(opt.to)!;
+        const ndx = destN.x - toN.x;
+        const ndz = destN.z - toN.z;
+        const nlen = Math.max(0.01, Math.hypot(ndx, ndz));
+        const dot = (ndx / nlen) * d0x + (ndz / nlen) * d0z;
+        return dot > 0.7 ? 1.8 : 1.0;
+      });
+      const pick = rng.weightedPick(options, weights);
+      nextEdge = pick.edge;
+      nextForward = pick.edge.from === toN.id;
+    }
+
+    const outFrom = this.map.graph.getNode(nextForward ? nextEdge.from : nextEdge.to)!;
+    const outTo = this.map.graph.getNode(nextForward ? nextEdge.to : nextEdge.from)!;
+    const odx = outTo.x - outFrom.x;
+    const odz = outTo.z - outFrom.z;
+    const olen = Math.max(0.01, Math.hypot(odx, odz));
+    const d2x = odx / olen;
+    const d2z = odz / olen;
+    const r2x = -d2z;
+    const r2z = d2x;
+
+    const maxLane = Math.max(1, nextEdge.lanesPerDir);
+    const laneW = (nextEdge.width * 0.5) / maxLane;
+    // Keep same lane index when continuing straight; pick natural lane when turning
+    const desiredLaneIdx = Math.min(maxLane - 1, Math.floor(c.laneOffset / Math.max(1.5, laneW)));
+    const nextLaneOffset = (desiredLaneIdx + 0.5) * laneW;
+    const outMargin = getTurnMargin(olen);
+
+    const p2x = outFrom.x + d2x * outMargin + r2x * nextLaneOffset;
+    const p2z = outFrom.z + d2z * outMargin + r2z * nextLaneOffset;
+    const y2 = outFrom.y + (outTo.y - outFrom.y) * (outMargin / olen);
+
+    const dot = d0x * d2x + d0z * d2z;
+    let p1x: number;
+    let p1z: number;
+    let isSharpTurn = false;
+
+    if (dot > 0.85) {
+      // Straight crossing
+      p1x = (p0x + p2x) * 0.5;
+      p1z = (p0z + p2z) * 0.5;
+    } else if (dot < -0.75) {
+      // Smooth U-turn arc around the dead-end node
+      p1x = (p0x + p2x) * 0.5 + d0x * 7.5;
+      p1z = (p0z + p2z) * 0.5 + d0z * 7.5;
+      isSharpTurn = true;
+    } else {
+      // Exact ray intersection of incoming & outgoing lane lines for natural right/left turn arcs!
+      isSharpTurn = true;
+      const det = d0z * d2x - d0x * d2z;
+      if (Math.abs(det) > 0.08) {
+        const sRaw = ((p2x - p0x) * -d2z - (p2z - p0z) * -d2x) / det;
+        const s = Math.max(2.5, Math.min(inMargin * 1.55, sRaw));
+        p1x = p0x + d0x * s;
+        p1z = p0z + d0z * s;
+      } else {
+        p1x = toN.x;
+        p1z = toN.z;
+      }
+    }
+
+    const arcLength = computeBezierArcLength(p0x, p0z, p1x, p1z, p2x, p2z);
+    return {
+      p0x,
+      p0z,
+      p1x,
+      p1z,
+      p2x,
+      p2z,
+      y0,
+      y2,
+      arcLength,
+      distTraveled: 0,
+      isSharpTurn,
+      nextEdge,
+      nextForward,
+      nextLaneOffset,
+      nextStartProgress: outMargin,
+    };
+  }
+
   private trySpawnCar(px: number, pz: number, rng: Rng): void {
     const slot = this.cars.find((c) => !c.active);
     if (!slot) return;
 
-    // Sample a few candidate edges in the 110..240m ring around the player
     for (let attempt = 0; attempt < 16; attempt++) {
       const edge = rng.pick(this.candidateEdges);
       if (edge.blocked) continue;
@@ -323,18 +549,20 @@ export class TrafficManager {
       const dy = toN.y - fromN.y;
       const dz = toN.z - fromN.z;
       const len = Math.max(1, Math.hypot(dx, dz));
-      const t = rng.range(0.15, 0.85);
+      const margin = getTurnMargin(len);
+      const tMin = Math.min(0.4, (margin + 4) / len);
+      const tMax = Math.max(tMin + 0.05, 1 - (margin + 6) / len);
+      const t = rng.range(tMin, tMax);
       const maxLane = Math.max(1, edge.lanesPerDir);
       const laneW = (edge.width * 0.5) / maxLane;
       const laneOffset = (rng.int(0, maxLane - 1) + 0.5) * laneW;
       const dirX = dx / len;
       const dirZ = dz / len;
       const sx = fromN.x + dx * t - dirZ * laneOffset;
-      const sy = fromN.y + dy * t + slot.spec.h * 0.5 + 0.1;
+      const sy = fromN.y + dy * t + slot.spec.h * 0.5 + 0.12;
       const sz = fromN.z + dz * t + dirX * laneOffset;
 
-      // Ensure not spawning on top of another traffic car
-      if (this.cars.some((o) => o.active && Math.hypot(o.x - sx, o.z - sz) < 12)) continue;
+      if (this.cars.some((o) => o.active && Math.hypot(o.x - sx, o.z - sz) < 13)) continue;
 
       slot.spawnOnEdge(edge, forward, t * len, laneOffset, sx, sy, sz, Math.atan2(-dirX, -dirZ));
       return;

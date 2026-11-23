@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { BALANCE } from '../core/config/balance';
 import { Rng } from '../core/Rng';
 import { WaitingPassenger } from '../gameplay/PassengerSpawner';
-import { getTripColorHex } from '../gameplay/Passenger';
+import { PassengerTypeId, getTripColorHex } from '../gameplay/Passenger';
 import { ArcadeVehicle } from '../vehicle/ArcadeVehicle';
 import { MapDefinition, SidewalkSpot } from '../world/mapData';
 
@@ -20,9 +20,13 @@ interface Pedestrian {
   diving: boolean;
   diveTimer: number;
   scareCooldown: number;
-  chainTimer: number; // > 0 when triggered by nearby explosion chain reaction
+  chainTimer: number;
   respawnTimer: number;
   shirtColor: THREE.Color;
+  pantsColor: THREE.Color;
+  skinColor: THREE.Color;
+  hairColor: THREE.Color;
+  heightScale: number;
   walkPhase: number;
 }
 
@@ -32,45 +36,207 @@ export interface PedImpactResult {
 }
 
 /**
- * Low-poly instanced pedestrians (§7.2):
- * - Walk along sidewalks near the player (~55 max)
- * - Dive away when car approaches fast (not guaranteed -> avoidable but risky!)
- * - Cartoon explosion on overlap with player car + 0.3s chain reaction within 3 m
- * - Also renders Waiting Passengers (rings + markers + figures) and Destination Light Beams!
+ * Builds a detailed GTA-SA-style articulated waiting passenger character tailored by archetype.
+ */
+function buildWaitingPassengerCharacter(typeId: PassengerTypeId, shirtColorHex: number): {
+  root: THREE.Group;
+  waveArm: THREE.Group;
+} {
+  const root = new THREE.Group();
+
+  const skinHex = typeId === 'grandma' ? 0xf5d0b5 : 0xeec19a;
+  const pantsHex =
+    typeId === 'businessman' || typeId === 'lateGroom'
+      ? 0x1b2028
+      : typeId === 'grandma'
+        ? 0x6a4c7a
+        : typeId === 'tourist'
+          ? 0xc8ad7f
+          : 0x2a3b52;
+  const hairHex =
+    typeId === 'grandma'
+      ? 0xe8ecf0
+      : typeId === 'celebrity'
+        ? 0xffd54f
+        : typeId === 'thrillSeeker'
+          ? 0xff3d00
+          : 0x2c2018;
+
+  const shirtMat = new THREE.MeshPhongMaterial({ color: shirtColorHex, shininess: 25 });
+  const pantsMat = new THREE.MeshPhongMaterial({ color: pantsHex, shininess: 15 });
+  const skinMat = new THREE.MeshPhongMaterial({ color: skinHex, shininess: 20 });
+  const hairMat = new THREE.MeshPhongMaterial({ color: hairHex, shininess: 25 });
+  const shoeMat = new THREE.MeshLambertMaterial({ color: 0x1c1c1c });
+  const darkMat = new THREE.MeshPhongMaterial({ color: 0x111111, shininess: 80 });
+
+  // Legs + shoes
+  const legGeo = new THREE.CylinderGeometry(0.105, 0.085, 0.78, 8);
+  const shoeGeo = new THREE.BoxGeometry(0.14, 0.1, 0.25);
+  for (const sx of [-0.12, 0.12]) {
+    const leg = new THREE.Mesh(legGeo, pantsMat);
+    leg.position.set(sx, 0.42, 0);
+    leg.castShadow = true;
+    const shoe = new THREE.Mesh(shoeGeo, shoeMat);
+    shoe.position.set(sx, 0.05, 0.04);
+    root.add(leg, shoe);
+  }
+
+  // Pelvis & sculpted torso (wider shoulders, tapered waist)
+  const pelvis = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.18, 0.22), pantsMat);
+  pelvis.position.set(0, 0.84, 0);
+  const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.18, 0.56, 8), shirtMat);
+  torso.scale.set(1.05, 1, 0.68);
+  torso.position.set(0, 1.18, 0);
+  torso.castShadow = true;
+  root.add(pelvis, torso);
+
+  // Left arm (resting / holding briefcase for businessman)
+  const armGeo = new THREE.CylinderGeometry(0.075, 0.06, 0.52, 8);
+  armGeo.translate(0, -0.22, 0);
+  const handGeo = new THREE.SphereGeometry(0.065, 8, 8);
+  const leftArm = new THREE.Group();
+  leftArm.position.set(-0.27, 1.38, 0);
+  const leftArmMesh = new THREE.Mesh(armGeo, shirtMat);
+  const leftHand = new THREE.Mesh(handGeo, skinMat);
+  leftHand.position.y = -0.5;
+  leftArm.add(leftArmMesh, leftHand);
+  if (typeId === 'businessman') {
+    const briefcase = new THREE.Mesh(
+      new THREE.BoxGeometry(0.1, 0.3, 0.4),
+      new THREE.MeshPhongMaterial({ color: 0x4e342e, shininess: 40 })
+    );
+    briefcase.position.set(-0.04, -0.62, 0);
+    leftArm.add(briefcase);
+  }
+  root.add(leftArm);
+
+  // Right arm (animated waving to hail the taxi!)
+  const waveArm = new THREE.Group();
+  waveArm.position.set(0.27, 1.38, 0);
+  const rightArmMesh = new THREE.Mesh(armGeo, shirtMat);
+  const rightHand = new THREE.Mesh(handGeo, skinMat);
+  rightHand.position.y = -0.5;
+  waveArm.add(rightArmMesh, rightHand);
+  root.add(waveArm);
+
+  // Neck + sculpted head + face/sunglasses + archetype headwear
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.08, 0.12, 8), skinMat);
+  neck.position.set(0, 1.5, 0);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.17, 12, 10), skinMat);
+  head.scale.set(0.92, 1.08, 0.96);
+  head.position.set(0, 1.66, 0);
+  head.castShadow = true;
+
+  const hair = new THREE.Mesh(new THREE.SphereGeometry(0.18, 12, 10, 0, Math.PI * 2, 0, Math.PI * 0.58), hairMat);
+  hair.position.set(0, 1.68, -0.01);
+  root.add(neck, head, hair);
+
+  if (typeId === 'grandma') {
+    const bun = new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 8), hairMat);
+    bun.position.set(0, 1.78, -0.14);
+    root.add(bun);
+  } else if (typeId === 'tourist') {
+    const hatBrim = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.34, 0.04, 12), new THREE.MeshLambertMaterial({ color: 0xf4d06f }));
+    hatBrim.position.set(0, 1.78, 0);
+    const hatCrown = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.19, 0.12, 12), new THREE.MeshLambertMaterial({ color: 0xf4d06f }));
+    hatCrown.position.set(0, 1.85, 0);
+    const camera = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.11, 0.1), darkMat);
+    camera.position.set(0, 1.24, 0.19);
+    root.add(hatBrim, hatCrown, camera);
+  } else if (typeId === 'celebrity' || typeId === 'thrillSeeker') {
+    const shades = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.07, 0.08), darkMat);
+    shades.position.set(0, 1.67, 0.14);
+    root.add(shades);
+  } else if (typeId === 'lateGroom') {
+    const bowTie = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.06, 0.05), darkMat);
+    bowTie.position.set(0, 1.44, 0.17);
+    root.add(bowTie);
+  }
+
+  return { root, waveArm };
+}
+
+/**
+ * GTA San Andreas–style articulated instanced pedestrians (§7.2):
+ * - 9 instanced body parts (torso, hips, head, hair, visor/shades, 2 animated legs, 2 animated arms)
+ * - Smooth walking stride + arm counter-swing + dynamic dive-away roll
+ * - Cartoon explosion on overlap + 0.3s chain reaction within 3m
+ * - Detailed waiting passenger figures waving to hail the cab + destination beams
  */
 export class PedestriansManager {
   public readonly group = new THREE.Group();
   private readonly peds: Pedestrian[] = [];
-  private readonly bodyInst: THREE.InstancedMesh;
+
+  private readonly torsoInst: THREE.InstancedMesh;
+  private readonly hipsInst: THREE.InstancedMesh;
   private readonly headInst: THREE.InstancedMesh;
-  private readonly dummy = new THREE.Object3D();
+  private readonly hairInst: THREE.InstancedMesh;
+  private readonly shadesInst: THREE.InstancedMesh;
+  private readonly leftLegInst: THREE.InstancedMesh;
+  private readonly rightLegInst: THREE.InstancedMesh;
+  private readonly leftArmInst: THREE.InstancedMesh;
+  private readonly rightArmInst: THREE.InstancedMesh;
+
+  private readonly rootObj = new THREE.Object3D();
+  private readonly partObj = new THREE.Object3D();
+  private readonly composedMat = new THREE.Matrix4();
   private readonly zeroMat = new THREE.Matrix4().makeScale(0, 0, 0);
 
-  // Waiting passenger visuals
   private readonly passengerVisuals = new Map<
     string,
-    { group: THREE.Group; ring: THREE.Mesh; beacon: THREE.Mesh }
+    { group: THREE.Group; ring: THREE.Mesh; beacon: THREE.Mesh; waveArm: THREE.Group }
   >();
-  // Active destination beams (up to 2 for Double Booking)
   private readonly destBeams: THREE.Group[] = [];
 
   constructor(private readonly map: MapDefinition) {
     const count = BALANCE.pedMaxCount;
-    const bodyGeo = new THREE.CylinderGeometry(0.24, 0.28, 1.15, 6);
-    bodyGeo.translate(0, 0.58, 0);
-    const bodyMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
-    this.bodyInst = new THREE.InstancedMesh(bodyGeo, bodyMat, count);
-    this.bodyInst.frustumCulled = false;
 
-    const headGeo = new THREE.SphereGeometry(0.22, 6, 6);
-    headGeo.translate(0, 1.38, 0);
-    const headMat = new THREE.MeshLambertMaterial({ color: 0xffd1a9 });
-    this.headInst = new THREE.InstancedMesh(headGeo, headMat, count);
-    this.headInst.frustumCulled = false;
+    // Sculpted human proportions (GTA SA silhouette)
+    const torsoGeo = new THREE.CylinderGeometry(0.22, 0.17, 0.54, 8);
+    torsoGeo.scale(1.06, 1, 0.68);
+    const hipsGeo = new THREE.BoxGeometry(0.34, 0.18, 0.21);
+    const headGeo = new THREE.SphereGeometry(0.16, 10, 8);
+    headGeo.scale(0.92, 1.08, 0.96);
+    const hairGeo = new THREE.SphereGeometry(0.17, 10, 8, 0, Math.PI * 2, 0, Math.PI * 0.58);
+    const shadesGeo = new THREE.BoxGeometry(0.21, 0.055, 0.06);
 
-    const shirtPalette = [0xe53935, 0x1e88e5, 0x43a047, 0xffb300, 0x8e24aa, 0x00acc1, 0xff7043, 0xec407a];
+    // Limb geometries pivoted at top joint (hip / shoulder) so rotation swings naturally!
+    const legGeo = new THREE.CylinderGeometry(0.095, 0.072, 0.76, 8);
+    legGeo.translate(0, -0.38, 0);
+    const armGeo = new THREE.CylinderGeometry(0.068, 0.052, 0.52, 8);
+    armGeo.translate(0, -0.25, 0);
+
+    const clothMat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 22 });
+    const skinMat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 20 });
+    const hairMat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 30 });
+    const shadesMat = new THREE.MeshPhongMaterial({ color: 0x161920, shininess: 90 });
+
+    const makeInst = (geo: THREE.BufferGeometry, mat: THREE.Material) => {
+      const m = new THREE.InstancedMesh(geo, mat, count);
+      m.frustumCulled = false;
+      m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      return m;
+    };
+
+    this.torsoInst = makeInst(torsoGeo, clothMat);
+    this.hipsInst = makeInst(hipsGeo, clothMat);
+    this.headInst = makeInst(headGeo, skinMat);
+    this.hairInst = makeInst(hairGeo, hairMat);
+    this.shadesInst = makeInst(shadesGeo, shadesMat);
+    this.leftLegInst = makeInst(legGeo, clothMat);
+    this.rightLegInst = makeInst(legGeo, clothMat);
+    this.leftArmInst = makeInst(armGeo, clothMat);
+    this.rightArmInst = makeInst(armGeo, clothMat);
+
+    this.torsoInst.castShadow = true;
+
+    const shirtPalette = [0xc62828, 0x1565c0, 0x2e7d32, 0xf9a825, 0x6a1b9a, 0x00838f, 0xe64a19, 0xad1457, 0xeceff1, 0x37474f];
+    const pantsPalette = [0x1f2d3d, 0x263238, 0x3e2723, 0x455a64, 0x2c3e50, 0x5d4037];
+    const skinPalette = [0xf5cfa9, 0xe5b887, 0xc68642, 0x8d5524, 0xf2c9a0];
+    const hairPalette = [0x1c1410, 0x4a2f1d, 0x8d5b2d, 0xd4a942, 0x9e9e9e, 0x2c1b18];
+
     for (let i = 0; i < count; i++) {
-      this.peds.push({
+      const ped: Pedestrian = {
         id: i + 1,
         active: false,
         x: 0,
@@ -87,13 +253,35 @@ export class PedestriansManager {
         chainTimer: 0,
         respawnTimer: 0,
         shirtColor: new THREE.Color(shirtPalette[i % shirtPalette.length]),
-        walkPhase: i * 0.7,
-      });
-      this.bodyInst.setMatrixAt(i, this.zeroMat);
-      this.headInst.setMatrixAt(i, this.zeroMat);
-      this.bodyInst.setColorAt(i, this.peds[i].shirtColor);
+        pantsColor: new THREE.Color(pantsPalette[(i * 3) % pantsPalette.length]),
+        skinColor: new THREE.Color(skinPalette[(i * 7) % skinPalette.length]),
+        hairColor: new THREE.Color(hairPalette[(i * 5) % hairPalette.length]),
+        heightScale: 0.94 + (i % 5) * 0.035,
+        walkPhase: i * 0.9,
+      };
+      this.peds.push(ped);
+      this.hidePedInstance(i);
+      this.torsoInst.setColorAt(i, ped.shirtColor);
+      this.leftArmInst.setColorAt(i, ped.shirtColor);
+      this.rightArmInst.setColorAt(i, ped.shirtColor);
+      this.hipsInst.setColorAt(i, ped.pantsColor);
+      this.leftLegInst.setColorAt(i, ped.pantsColor);
+      this.rightLegInst.setColorAt(i, ped.pantsColor);
+      this.headInst.setColorAt(i, ped.skinColor);
+      this.hairInst.setColorAt(i, ped.hairColor);
     }
-    this.group.add(this.bodyInst, this.headInst);
+
+    this.group.add(
+      this.torsoInst,
+      this.hipsInst,
+      this.headInst,
+      this.hairInst,
+      this.shadesInst,
+      this.leftLegInst,
+      this.rightLegInst,
+      this.leftArmInst,
+      this.rightArmInst
+    );
 
     // Pre-create 2 destination light beams
     for (let i = 0; i < 2; i++) {
@@ -127,16 +315,78 @@ export class PedestriansManager {
     }
   }
 
+  private hidePedInstance(i: number): void {
+    this.torsoInst.setMatrixAt(i, this.zeroMat);
+    this.hipsInst.setMatrixAt(i, this.zeroMat);
+    this.headInst.setMatrixAt(i, this.zeroMat);
+    this.hairInst.setMatrixAt(i, this.zeroMat);
+    this.shadesInst.setMatrixAt(i, this.zeroMat);
+    this.leftLegInst.setMatrixAt(i, this.zeroMat);
+    this.rightLegInst.setMatrixAt(i, this.zeroMat);
+    this.leftArmInst.setMatrixAt(i, this.zeroMat);
+    this.rightArmInst.setMatrixAt(i, this.zeroMat);
+  }
+
+  private updatePedInstance(i: number, p: Pedestrian): void {
+    const yaw = p.diving ? Math.atan2(p.vx, p.vz) : Math.atan2(p.walkDirX, p.walkDirZ);
+    const swing = p.diving ? 0.95 : Math.sin(p.walkPhase) * 0.55;
+    const bob = p.diving ? 0.35 : Math.abs(Math.sin(p.walkPhase)) * 0.05;
+
+    this.rootObj.position.set(p.x, p.y + bob, p.z);
+    this.rootObj.rotation.set(p.diving ? 1.15 : 0, yaw, 0);
+    this.rootObj.scale.setScalar(p.heightScale);
+    this.rootObj.updateMatrix();
+    const rootM = this.rootObj.matrix;
+
+    const place = (
+      inst: THREE.InstancedMesh,
+      px: number,
+      py: number,
+      pz: number,
+      rx = 0,
+      rz = 0
+    ) => {
+      this.partObj.position.set(px, py, pz);
+      this.partObj.rotation.set(rx, 0, rz);
+      this.partObj.scale.setScalar(1);
+      this.partObj.updateMatrix();
+      this.composedMat.multiplyMatrices(rootM, this.partObj.matrix);
+      inst.setMatrixAt(i, this.composedMat);
+    };
+
+    place(this.hipsInst, 0, 0.8, 0);
+    place(this.torsoInst, 0, 1.14, 0);
+    place(this.headInst, 0, 1.59, 0);
+    place(this.hairInst, 0, 1.62, -0.01);
+    place(this.shadesInst, 0, 1.6, 0.13);
+
+    // Opposite-phase walking stride for legs and arms
+    place(this.leftLegInst, -0.11, 0.78, 0, swing, 0);
+    place(this.rightLegInst, 0.11, 0.78, 0, -swing, 0);
+    place(this.leftArmInst, -0.25, 1.35, 0, p.diving ? -2.2 : -swing * 0.85, 0.08);
+    place(this.rightArmInst, 0.25, 1.35, 0, p.diving ? -2.2 : swing * 0.85, -0.08);
+  }
+
+  private markAllDirty(): void {
+    this.torsoInst.instanceMatrix.needsUpdate = true;
+    this.hipsInst.instanceMatrix.needsUpdate = true;
+    this.headInst.instanceMatrix.needsUpdate = true;
+    this.hairInst.instanceMatrix.needsUpdate = true;
+    this.shadesInst.instanceMatrix.needsUpdate = true;
+    this.leftLegInst.instanceMatrix.needsUpdate = true;
+    this.rightLegInst.instanceMatrix.needsUpdate = true;
+    this.leftArmInst.instanceMatrix.needsUpdate = true;
+    this.rightArmInst.instanceMatrix.needsUpdate = true;
+  }
+
   reset(): void {
     for (let i = 0; i < this.peds.length; i++) {
       this.peds[i].active = false;
       this.peds[i].chainTimer = 0;
       this.peds[i].respawnTimer = 0;
-      this.bodyInst.setMatrixAt(i, this.zeroMat);
-      this.headInst.setMatrixAt(i, this.zeroMat);
+      this.hidePedInstance(i);
     }
-    this.bodyInst.instanceMatrix.needsUpdate = true;
-    this.headInst.instanceMatrix.needsUpdate = true;
+    this.markAllDirty();
     for (const v of this.passengerVisuals.values()) {
       this.group.remove(v.group);
     }
@@ -179,14 +429,12 @@ export class PedestriansManager {
         } else {
           this.trySpawnPed(p, px, pz, rng);
         }
-        this.bodyInst.setMatrixAt(i, this.zeroMat);
-        this.headInst.setMatrixAt(i, this.zeroMat);
+        this.hidePedInstance(i);
         continue;
       }
 
       if (p.scareCooldown > 0) p.scareCooldown -= dt;
 
-      // Chain reaction countdown (§7.2: 0.3s delay)
       if (p.chainTimer > 0) {
         p.chainTimer -= dt;
         if (p.chainTimer <= 0) {
@@ -194,8 +442,7 @@ export class PedestriansManager {
           p.respawnTimer = BALANCE.pedRespawnDelay;
           out.explosions.push({ x: p.x, y: p.y, z: p.z, isChain: true, wasPassenger: false });
           triggerChainAround(p.x, p.z);
-          this.bodyInst.setMatrixAt(i, this.zeroMat);
-          this.headInst.setMatrixAt(i, this.zeroMat);
+          this.hidePedInstance(i);
           continue;
         }
       }
@@ -207,24 +454,20 @@ export class PedestriansManager {
       if (dist > BALANCE.pedDespawnRadius) {
         p.active = false;
         p.respawnTimer = 0.5;
-        this.bodyInst.setMatrixAt(i, this.zeroMat);
-        this.headInst.setMatrixAt(i, this.zeroMat);
+        this.hidePedInstance(i);
         continue;
       }
 
-      // Dive-away AI when fast car approaches (§7.2)
+      // Dive-away AI
       if (!p.diving && dist < BALANCE.pedDiveDetectRadius && pSpd > 8) {
         const dot = (dx * fwdX + dz * fwdZ) / Math.max(0.1, dist);
         if (dot > 0.45) {
-          // Lateral vector away from car path
           const cross = fwdX * dz - fwdZ * dx;
           const sideSign = cross >= 0 ? 1 : -1;
-          const latX = -fwdZ * sideSign;
-          const latZ = fwdX * sideSign;
           p.diving = true;
           p.diveTimer = 0.65;
-          p.vx = latX * 5.2;
-          p.vz = latZ * 5.2;
+          p.vx = -fwdZ * sideSign * 5.2;
+          p.vz = fwdX * sideSign * 5.2;
         }
       }
 
@@ -232,24 +475,21 @@ export class PedestriansManager {
         p.x += p.vx * dt;
         p.z += p.vz * dt;
         p.diveTimer -= dt;
-        if (p.diveTimer <= 0) {
-          p.diving = false;
-        }
+        if (p.diveTimer <= 0) p.diving = false;
       } else {
         p.x += p.walkDirX * p.walkSpeed * dt;
         p.z += p.walkDirZ * p.walkSpeed * dt;
-        p.walkPhase += dt * 6;
+        p.walkPhase += dt * p.walkSpeed * 4.2;
       }
 
-      // Check player overlap -> cartoon explosion! (Ghost Cab passes safely §7.2)
+      // Player overlap -> cartoon explosion!
       if (!player.isGhost && Math.abs(py - p.y) < 2.2) {
         if (dist < 1.85) {
           p.active = false;
           p.respawnTimer = BALANCE.pedRespawnDelay;
           out.explosions.push({ x: p.x, y: p.y, z: p.z, isChain: false, wasPassenger: false });
           triggerChainAround(p.x, p.z);
-          this.bodyInst.setMatrixAt(i, this.zeroMat);
-          this.headInst.setMatrixAt(i, this.zeroMat);
+          this.hidePedInstance(i);
           continue;
         } else if (dist < 2.85 && pSpd > 9 && p.scareCooldown <= 0) {
           p.scareCooldown = 3.0;
@@ -257,20 +497,12 @@ export class PedestriansManager {
         }
       }
 
-      // Update instanced transform
-      const bob = p.diving ? 0.15 : Math.abs(Math.sin(p.walkPhase)) * 0.08;
-      this.dummy.position.set(p.x, p.y + bob, p.z);
-      this.dummy.rotation.set(p.diving ? 0.7 : 0, Math.atan2(p.walkDirX, p.walkDirZ), 0);
-      this.dummy.scale.setScalar(1);
-      this.dummy.updateMatrix();
-      this.bodyInst.setMatrixAt(i, this.dummy.matrix);
-      this.headInst.setMatrixAt(i, this.dummy.matrix);
+      this.updatePedInstance(i, p);
     }
 
-    this.bodyInst.instanceMatrix.needsUpdate = true;
-    this.headInst.instanceMatrix.needsUpdate = true;
+    this.markAllDirty();
 
-    // Check waiting passenger direct impacts (§7.2: hitting a waiting passenger explodes them too!)
+    // Waiting passenger direct impacts
     if (!player.isGhost) {
       for (const wp of waitingPassengers) {
         if (wp.exploded) continue;
@@ -290,10 +522,8 @@ export class PedestriansManager {
       }
     }
 
-    // Sync waiting passenger 3D markers
-    this.syncWaitingPassengerVisuals(waitingPassengers, timeSec);
+    this.syncWaitingPassengerVisuals(waitingPassengers, timeSec, px, pz);
 
-    // Sync active destination beams
     for (let i = 0; i < this.destBeams.length; i++) {
       const dest = activeDestinations[i];
       const beamGroup = this.destBeams[i];
@@ -342,7 +572,12 @@ export class PedestriansManager {
     p.respawnTimer = 0.6;
   }
 
-  private syncWaitingPassengerVisuals(waiting: WaitingPassenger[], timeSec: number): void {
+  private syncWaitingPassengerVisuals(
+    waiting: WaitingPassenger[],
+    timeSec: number,
+    playerX: number,
+    playerZ: number
+  ): void {
     const liveIds = new Set(waiting.map((w) => w.id));
     for (const [id, vis] of this.passengerVisuals.entries()) {
       if (!liveIds.has(id)) {
@@ -357,19 +592,9 @@ export class PedestriansManager {
         const colorHex = getTripColorHex(wp.tripCategory);
         const g = new THREE.Group();
 
-        // Waiting person mesh
-        const body = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.3, 0.34, 1.25, 7),
-          new THREE.MeshLambertMaterial({ color: wp.type.shirtColor })
-        );
-        body.position.y = 0.65;
-        const head = new THREE.Mesh(
-          new THREE.SphereGeometry(0.26, 7, 7),
-          new THREE.MeshLambertMaterial({ color: 0xffd5b5 })
-        );
-        head.position.y = 1.5;
+        const char = buildWaitingPassengerCharacter(wp.type.id, wp.type.shirtColor);
+        g.add(char.root);
 
-        // Pickup ring (radius 6m §8.3)
         const ring = new THREE.Mesh(
           new THREE.RingGeometry(4.8, 6.0, 26),
           new THREE.MeshBasicMaterial({
@@ -382,12 +607,11 @@ export class PedestriansManager {
         ring.rotation.x = -Math.PI * 0.5;
         ring.position.y = 0.16;
 
-        // Tall color-coded pickup beacon / diamond marker above passenger
         const beacon = new THREE.Mesh(
           new THREE.OctahedronGeometry(0.85, 0),
           new THREE.MeshBasicMaterial({ color: colorHex })
         );
-        beacon.position.y = 3.4;
+        beacon.position.y = 3.5;
 
         const pillar = new THREE.Mesh(
           new THREE.CylinderGeometry(0.45, 0.9, 28, 8, 1, true),
@@ -401,14 +625,19 @@ export class PedestriansManager {
         );
         pillar.position.y = 14;
 
-        g.add(body, head, ring, beacon, pillar);
+        g.add(ring, beacon, pillar);
         g.position.set(wp.x, wp.y, wp.z);
         this.group.add(g);
-        vis = { group: g, ring, beacon };
+        vis = { group: g, ring, beacon, waveArm: char.waveArm };
         this.passengerVisuals.set(wp.id, vis);
       }
 
-      vis.beacon.position.y = 3.4 + Math.sin(timeSec * 4.5) * 0.45;
+      // Face toward the approaching taxi and enthusiastically wave their right arm!
+      const charRoot = vis.group.children[0];
+      charRoot.rotation.y = Math.atan2(playerX - wp.x, playerZ - wp.z);
+      vis.waveArm.rotation.z = -2.4 + Math.sin(timeSec * 8.5) * 0.35;
+
+      vis.beacon.position.y = 3.5 + Math.sin(timeSec * 4.5) * 0.45;
       vis.beacon.rotation.y = timeSec * 2.4;
       const pulse = 1 + Math.sin(timeSec * 5) * 0.05;
       vis.ring.scale.set(pulse, pulse, 1);

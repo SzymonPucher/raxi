@@ -107,7 +107,7 @@ export function renderHowToPlay(container: HTMLElement, cb: ScreenCallbacks): HT
         </div>
         <div>
           <h3 style="color:var(--taxi-yellow);margin:0 0 6px">🔧 GARAGE BREAKS</h3>
-          <p>With no passenger on board, press <b>B</b> to enter <b>Break Mode</b>: the shift timer freezes! Follow the cyan arrow to any of the 4 <b>Raxi Garages</b> to spend your wallet on powers, repairs, or cleansing curses.</p>
+          <p>With no passenger on board, press <b>B</b> to enter <b>Break Mode</b>: the shift timer freezes! Follow the cyan GPS route to any of the 4 <b>Raxi Garages</b> to spend your wallet on powers, repairs, or cleansing curses.</p>
           <h3 style="color:var(--taxi-yellow);margin:12px 0 6px">⌨️ CONTROLS</h3>
           <table class="raxi-table">
             <tr><td><b>W / S / A / D</b> or Arrows</td><td>Drive & Steer</td></tr>

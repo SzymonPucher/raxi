@@ -54,7 +54,6 @@ export interface MapDefinition {
   garages: GarageDef[];
   ramps: RampDef[];
   sidewalkSpots: SidewalkSpot[];
-  riverLine: { x0: number; z0: number; x1: number; z1: number; halfWidth: number };
   parkBounds: { minX: number; maxX: number; minZ: number; maxZ: number };
   worldHalfSize: number;
   cityCoreHalfSize: number;
@@ -85,27 +84,6 @@ export function getDistrictAt(x: number, z: number): DistrictId {
 }
 
 /**
- * Distance from a point to the diagonal river centerline running SW (-700, 620) -> NE (700, -560).
- */
-export const RIVER_LINE = {
-  x0: -680,
-  z0: 540,
-  x1: 720,
-  z1: -560,
-  halfWidth: 26,
-};
-
-export function distToRiver(x: number, z: number): number {
-  const dx = RIVER_LINE.x1 - RIVER_LINE.x0;
-  const dz = RIVER_LINE.z1 - RIVER_LINE.z0;
-  const lenSq = dx * dx + dz * dz;
-  const t = Math.max(0, Math.min(1, ((x - RIVER_LINE.x0) * dx + (z - RIVER_LINE.z0) * dz) / lenSq));
-  const px = RIVER_LINE.x0 + dx * t;
-  const pz = RIVER_LINE.z0 + dz * t;
-  return Math.hypot(x - px, z - pz);
-}
-
-/**
  * Outskirts elevation function (0 inside city core & roads; rolling hills in outskirts).
  */
 export function getTerrainHeight(x: number, z: number): number {
@@ -113,13 +91,7 @@ export function getTerrainHeight(x: number, z: number): number {
   if (distFromCore <= 0) return 0;
   const blend = Math.min(1, distFromCore / 180);
 
-  // Ocean drops off on East (x > 880) and South (z > 880)
-  if (x > 860 || z > 860) {
-    const seaDist = Math.max(x - 860, z - 860);
-    return Math.max(-4, -seaDist * 0.05);
-  }
-
-  // Rolling hills in North/West outskirts & Hilltop Lookout
+  // Rolling hills in outskirts & Hilltop Lookout
   const hill =
     (Math.sin(x * 0.0055) * Math.cos(z * 0.0055) * 14 +
       Math.sin((x + z) * 0.0032) * 10 +
@@ -218,24 +190,7 @@ export function createMapDefinition(): MapDefinition {
     }
   }
 
-  // Connect grid edges, breaking grid across river except at 4 dedicated bridges!
-  // 4 bridges across diagonal river: around (-300, 200), (0, 0), (200, -100), (400, -300)
-  const bridgePairs = new Set([
-    'g_2_7|g_2_8',
-    'g_5_5|g_5_4',
-    'g_7_4|g_7_3',
-    'g_9_2|g_9_1',
-    'g_2_7|g_3_7',
-    'g_5_5|g_6_5',
-    'g_7_3|g_8_3',
-  ]);
-
-  const crossesRiver = (x1: number, z1: number, x2: number, z2: number) => {
-    const mx = (x1 + x2) * 0.5;
-    const mz = (z1 + z2) * 0.5;
-    return distToRiver(mx, mz) < RIVER_LINE.halfWidth + 8;
-  };
-
+  // Connect full city grid seamlessly (no river or bridges)
   for (let ix = 0; ix < gridCoords.length; ix++) {
     for (let iz = 0; iz < gridCoords.length; iz++) {
       const idA = gId(ix, iz);
@@ -248,28 +203,10 @@ export function createMapDefinition(): MapDefinition {
         const idB = gId(ix + 1, iz);
         if (nodeIds.has(idB)) {
           const xB = gridCoords[ix + 1];
-          const zB = zA;
-          const onRiver = crossesRiver(xA, zA, xB, zB);
-          const pairKey = `${idA}|${idB}`;
-          if (!onRiver || bridgePairs.has(pairKey)) {
-            const isAve = iz % 2 === 1;
-            const district = getDistrictAt((xA + xB) * 0.5, zA);
-            const limit = onRiver
-              ? 18
-              : district === 'residential'
-                ? 13
-                : isAve
-                  ? 18
-                  : 15;
-            addEdge(
-              idA,
-              idB,
-              onRiver ? 'bridge' : isAve ? 'avenue' : 'street',
-              isAve ? 2 : 1,
-              limit,
-              isAve ? 16 : 12
-            );
-          }
+          const isAve = iz % 2 === 1;
+          const district = getDistrictAt((xA + xB) * 0.5, zA);
+          const limit = district === 'residential' ? 13 : isAve ? 18 : 15;
+          addEdge(idA, idB, isAve ? 'avenue' : 'street', isAve ? 2 : 1, limit, isAve ? 16 : 12);
         }
       }
 
@@ -277,29 +214,11 @@ export function createMapDefinition(): MapDefinition {
       if (iz + 1 < gridCoords.length) {
         const idB = gId(ix, iz + 1);
         if (nodeIds.has(idB)) {
-          const xB = xA;
           const zB = gridCoords[iz + 1];
-          const onRiver = crossesRiver(xA, zA, xB, zB);
-          const pairKey = `${idA}|${idB}`;
-          if (!onRiver || bridgePairs.has(pairKey)) {
-            const isAve = ix % 2 === 1;
-            const district = getDistrictAt(xA, (zA + zB) * 0.5);
-            const limit = onRiver
-              ? 18
-              : district === 'residential'
-                ? 13
-                : isAve
-                  ? 18
-                  : 15;
-            addEdge(
-              idA,
-              idB,
-              onRiver ? 'bridge' : isAve ? 'avenue' : 'street',
-              isAve ? 2 : 1,
-              limit,
-              isAve ? 16 : 12
-            );
-          }
+          const isAve = ix % 2 === 1;
+          const district = getDistrictAt(xA, (zA + zB) * 0.5);
+          const limit = district === 'residential' ? 13 : isAve ? 18 : 15;
+          addEdge(idA, idB, isAve ? 'avenue' : 'street', isAve ? 2 : 1, limit, isAve ? 16 : 12);
         }
       }
     }
@@ -320,11 +239,11 @@ export function createMapDefinition(): MapDefinition {
   // Diagonal coastal boulevard on SE docks
   addEdge('g_8_8', 'g_10_6', 'avenue', 2, 20, 16);
 
-  // 3. Ring Highway around the city core (±640) with 6 on/off ramps & 1 elevated overpass on North side!
+  // 3. Ring Highway around the city core (±640) with on/off ramps (flat, no bridges)
   const hwNodes: Array<[string, number, number, number]> = [
     ['hw_nw', -640, -640, 0],
     ['hw_n1', -300, -640, 0],
-    ['hw_n_over', 0, -640, 7.5], // Elevated overpass!
+    ['hw_n_over', 0, -640, 0],
     ['hw_n2', 300, -640, 0],
     ['hw_ne', 640, -640, 0],
     ['hw_e1', 640, -200, 0],
@@ -638,7 +557,7 @@ export function createMapDefinition(): MapDefinition {
   const ramps: RampDef[] = [
     { id: 'ramp_docks_1', x: 350, y: 0, z: 50, width: 10, length: 18, height: 3.4, yaw: 0, label: 'Docks Jump' },
     { id: 'ramp_docks_2', x: 450, y: 0, z: 250, width: 10, length: 18, height: 3.8, yaw: Math.PI * 0.5, label: 'Container Launch' },
-    { id: 'ramp_drawbridge', x: 200, y: 0, z: -135, width: 12, length: 18, height: 3.2, yaw: 0, label: 'Drawbridge Jump' },
+    { id: 'ramp_avenue', x: 200, y: 0, z: -135, width: 12, length: 18, height: 3.2, yaw: 0, label: 'Eastside Jump' },
     { id: 'ramp_downtown', x: 100, y: 0, z: 255, width: 10, length: 16, height: 3.0, yaw: Math.PI, label: 'Plaza Ramp' },
     { id: 'ramp_quarry_1', x: -815, y: 0, z: -740, width: 12, length: 20, height: 4.5, yaw: 0.7, label: 'Quarry Mega Jump' },
     { id: 'ramp_airfield', x: -790, y: 0, z: 760, width: 12, length: 22, height: 4.2, yaw: -Math.PI * 0.5, label: 'Runway Jump' },
@@ -684,8 +603,7 @@ export function createMapDefinition(): MapDefinition {
       const sx = a.x + dx * t + rx * offset * side;
       const sz = a.z + dz * t + rz * offset * side;
       const sy = a.y + (b.y - a.y) * t;
-      // Avoid placing right inside a garage or river
-      if (distToRiver(sx, sz) < RIVER_LINE.halfWidth + 4) continue;
+      // Avoid placing right inside a garage
       if (garages.some((g) => Math.hypot(g.x - sx, g.z - sz) < 24)) continue;
 
       const houseNum = 100 + ((i * 37 + Math.round(t * 100)) % 890);
@@ -707,7 +625,6 @@ export function createMapDefinition(): MapDefinition {
     garages,
     ramps,
     sidewalkSpots,
-    riverLine: RIVER_LINE,
     parkBounds: { minX: -195, maxX: -5, minZ: -195, maxZ: -5 },
     worldHalfSize: 1200,
     cityCoreHalfSize: 600,

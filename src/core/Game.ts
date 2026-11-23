@@ -29,7 +29,6 @@ import { Shop } from '../shop/Shop';
 import { PedestriansManager } from '../traffic/Pedestrians';
 import { TrafficLights } from '../traffic/TrafficLights';
 import { TrafficManager } from '../traffic/TrafficManager';
-import { NavArrow3D } from '../ui/hud/NavArrow3D';
 import { UIManager } from '../ui/UIManager';
 import { ArcadeVehicle } from '../vehicle/ArcadeVehicle';
 import { VehicleStats } from '../vehicle/VehicleStats';
@@ -69,7 +68,6 @@ export class Game {
   private readonly lights: TrafficLights;
   private readonly traffic: TrafficManager;
   private readonly peds: PedestriansManager;
-  private readonly navArrow: NavArrow3D;
   private readonly ui: UIManager;
   private readonly debugPanel: DebugPanel;
   private readonly loop: Loop;
@@ -92,12 +90,9 @@ export class Game {
   private garageCooldown = 0;
   private settingsReturnTo: 'main' | 'pause' = 'main';
 
-  // Route caching (§8.4: recompute every 0.5s or when > 30m off route)
+  // Route caching (§8.4: recompute every 0.5s for GPS minimap)
   private routeWaypoints: Array<{ x: number; y: number; z: number }> = [];
   private routeRecomputeTimer = 0;
-  private navTargetX = 0;
-  private navTargetZ = 0;
-  private navColorHex = 0x00e676;
 
   // Stop progress HUD display
   private stopProgress = 0;
@@ -163,9 +158,6 @@ export class Game {
 
     this.peds = new PedestriansManager(this.map);
     this.scene.add(this.peds.group);
-
-    this.navArrow = new NavArrow3D();
-    this.scene.add(this.navArrow.root);
 
     // 5. UI Manager
     this.ui = new UIManager(uiRoot, {
@@ -1522,7 +1514,7 @@ export class Game {
     }
   }
 
-  // --- Navigation (§8.4) ---
+  // --- Navigation (§8.4 GPS route for minimap) ---
   private updateNavigation(realDt: number, inBreak: boolean): void {
     this.routeRecomputeTimer -= realDt;
     const px = this.vehicle.currPosition.x;
@@ -1532,7 +1524,6 @@ export class Game {
     let goalZ: number | null = null;
 
     if (inBreak) {
-      // Nearest Raxi Garage
       let bestD = Infinity;
       for (const g of this.map.garages) {
         const d = Math.hypot(g.x - px, g.z - pz);
@@ -1542,9 +1533,7 @@ export class Game {
           goalZ = g.z;
         }
       }
-      this.navColorHex = 0x00e5ff;
     } else if (this.shift.activeFares.length > 0) {
-      // Nearest active fare destination
       let bestFare: ActiveFare = this.shift.activeFares[0];
       let bestD = Math.hypot(bestFare.destinationX - px, bestFare.destinationZ - pz);
       for (let i = 1; i < this.shift.activeFares.length; i++) {
@@ -1557,9 +1546,7 @@ export class Game {
       }
       goalX = bestFare.destinationX;
       goalZ = bestFare.destinationZ;
-      this.navColorHex = 0x00e676;
     } else if (this.storage.settings.navPointNearestPassenger && this.spawner.waiting.length > 0) {
-      // Nearest waiting passenger
       let bestD = Infinity;
       for (const wp of this.spawner.waiting) {
         const d = Math.hypot(wp.x - px, wp.z - pz);
@@ -1569,7 +1556,6 @@ export class Game {
           goalZ = wp.z;
         }
       }
-      this.navColorHex = 0xffcc00;
     }
 
     if (goalX === null || goalZ === null) {
@@ -1577,25 +1563,12 @@ export class Game {
       return;
     }
 
-    // Recompute A* route every 0.5s
     if (this.routeRecomputeTimer <= 0) {
       this.routeRecomputeTimer = 0.5;
       const route = this.map.graph.findRouteBetweenPoints(px, pz, goalX, goalZ, {
         allowShortcuts: this.powerManager.has('local_knowledge'),
       });
       this.routeWaypoints = route.waypoints;
-    }
-
-    // Pick next waypoint > 18m away along route
-    this.navTargetX = goalX;
-    this.navTargetZ = goalZ;
-    for (let i = 0; i < this.routeWaypoints.length; i++) {
-      const wp = this.routeWaypoints[i];
-      if (Math.hypot(wp.x - px, wp.z - pz) > 18) {
-        this.navTargetX = wp.x;
-        this.navTargetZ = wp.z;
-        break;
-      }
     }
   }
 
@@ -1696,18 +1669,6 @@ export class Game {
       beam.visible = this.state === 'Break' || this.state === 'Driving' || this.state === 'MainMenu';
       beam.rotation.y = this.timeSec * 0.8;
     }
-
-    // 3D Nav Arrow
-    this.navArrow.update({
-      carPos: this.vehicleVisual.root.position,
-      targetX: this.navTargetX,
-      targetZ: this.navTargetZ,
-      colorHex: this.navColorHex,
-      visible:
-        (this.state === 'Driving' || this.state === 'Break') && this.routeWaypoints.length > 0,
-      timeSec: this.timeSec,
-      dt: realDt,
-    });
 
     // Audio engine update
     const maxSlip = Math.max(...this.vehicle.wheels.map((w) => w.slipAmount));

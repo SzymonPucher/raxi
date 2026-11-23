@@ -9,7 +9,6 @@ import {
   LandmarkDef,
   MapDefinition,
   RampDef,
-  distToRiver,
   getDistrictAt,
   getTerrainHeight,
 } from './mapData';
@@ -171,13 +170,11 @@ function buildRoads(
     polygonOffsetFactor: -3,
     polygonOffsetUnits: -3,
   });
-  const matBridgeSide = new THREE.MeshLambertMaterial({ color: 0xb0bec5 });
 
   // Bucket road strip geometries by material for merged low-draw-call rendering!
   const geos2: THREE.BufferGeometry[] = [];
   const geos4: THREE.BufferGeometry[] = [];
   const geosShort: THREE.BufferGeometry[] = [];
-  const railGeos: THREE.BufferGeometry[] = [];
 
   // Collect vertices & indices for elevated roads/bridges/overpasses trimesh collider
   const roadVerts: number[] = [];
@@ -234,34 +231,6 @@ function buildRoads(
 
     // Add crisp physics road surface for ALL road strips (only ~440 tris total) so wheels ride flush with asphalt!
     pushQuadCollider(p0, p1, p2, p3);
-
-    // Bridge guardrails & overpass pillars
-    if (e.roadType === 'bridge' || a.y > 2 || b.y > 2) {
-      const railLen = fullLen;
-      const midX = (a.x + b.x) * 0.5;
-      const midY = (a.y + b.y) * 0.5;
-      const midZ = (a.z + b.z) * 0.5;
-      const yaw = Math.atan2(dx, dz);
-      const pitch = -Math.atan2(dy, horizLen);
-      const m4 = new THREE.Matrix4();
-      const euler = new THREE.Euler(pitch, yaw, 0, 'YXZ');
-      const q = new THREE.Quaternion().setFromEuler(euler);
-      for (const side of [-1, 1]) {
-        const rg = new THREE.BoxGeometry(0.45, 0.9, railLen);
-        m4.compose(
-          new THREE.Vector3(midX + rx * side * 0.98, midY + 0.5, midZ + rz * side * 0.98),
-          q,
-          new THREE.Vector3(1, 1, 1)
-        );
-        rg.applyMatrix4(m4);
-        railGeos.push(rg);
-      }
-      if (midY > 2.5) {
-        const pg = new THREE.BoxGeometry(2.5, midY, 2.5);
-        pg.translate(midX, midY * 0.5, midZ);
-        railGeos.push(pg);
-      }
-    }
   }
 
   const addMergedRoad = (geos: THREE.BufferGeometry[], mat: THREE.Material) => {
@@ -277,7 +246,6 @@ function buildRoads(
   addMergedRoad(geos2, mat2);
   addMergedRoad(geos4, mat4);
   addMergedRoad(geosShort, matShortcut);
-  addMergedRoad(railGeos, matBridgeSide);
 
   // Intersection square patches so road crossings look seamless
   const patchGeo = new THREE.PlaneGeometry(16.8, 16.8);
@@ -326,8 +294,6 @@ function buildDistrictBuildings(
       ) {
         continue;
       }
-      // Skip diagonal river corridor
-      if (distToRiver(bx, bz) < map.riverLine.halfWidth + 28) continue;
       // Skip blocks containing a landmark
       if (map.landmarks.some((l) => Math.abs(l.x - bx) < 48 && Math.abs(l.z - bz) < 48)) continue;
       // Skip blocks containing a garage or ramp
