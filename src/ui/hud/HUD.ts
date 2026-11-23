@@ -92,7 +92,6 @@ export class HUD {
   private readonly timerLabel: HTMLDivElement;
   private readonly timerValue: HTMLDivElement;
   private readonly timeFloatBox: HTMLDivElement;
-  private readonly breakBanner: HTMLDivElement;
   private readonly eventBanner: HTMLDivElement;
 
   private readonly scoreVal: HTMLSpanElement;
@@ -152,16 +151,11 @@ export class HUD {
     this.timeFloatBox = document.createElement('div');
     this.timeFloatBox.className = 'hud-time-float-container';
 
-    this.breakBanner = document.createElement('div');
-    this.breakBanner.className = 'hud-banner hud-banner-break';
-    this.breakBanner.style.display = 'none';
-    this.breakBanner.textContent = 'BREAK MODE — TIMER FROZEN • DRIVE TO GARAGE OR PRESS B';
-
     this.eventBanner = document.createElement('div');
     this.eventBanner.className = 'hud-banner hud-banner-event';
     this.eventBanner.style.display = 'none';
 
-    topCenter.append(this.timerBox, this.breakBanner, this.eventBanner, this.timeFloatBox);
+    topCenter.append(this.timerBox, this.eventBanner, this.timeFloatBox);
     this.root.appendChild(topCenter);
 
     // Top Right
@@ -316,7 +310,6 @@ export class HUD {
     this.timerLabel.textContent = data.inBreakMode ? 'FROZEN (BREAK)' : `TIER ${shift.tier} • SHIFT TIME`;
 
     // Banners
-    this.breakBanner.style.display = data.inBreakMode ? 'block' : 'none';
     if (data.activeEvent) {
       const names = {
         rushHour: '🚗 RUSH HOUR (2× TRAFFIC)',
