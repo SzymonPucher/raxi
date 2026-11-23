@@ -17,6 +17,17 @@ export interface RailLineDef {
   points: Array<[number, number]>;
 }
 
+export interface RailwayBridgeDef {
+  id: string;
+  x: number;
+  z: number;
+  yaw: number;
+  spanLength: number;
+  deckWidth: number;
+  clearance: number;
+  archHeight: number;
+}
+
 export type CustomBuildingStyle =
   | 'kamienica'
   | 'blok'
@@ -163,6 +174,7 @@ export interface MapDefinition {
   sidewalkSpots: SidewalkSpot[];
   greenZones?: GreenZoneDef[];
   railLines?: RailLineDef[];
+  railwayBridges?: RailwayBridgeDef[];
   customBuildings?: CustomBuildingDef[];
   fences?: FenceDef[];
   disableDefaultGridBuildings?: boolean;

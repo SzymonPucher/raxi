@@ -207,6 +207,13 @@ describe('Mikołów, Poland MapDefinition', () => {
       expect(rl.points.length).toBeGreaterThanOrEqual(2);
     }
 
+    const bridges = map.railwayBridges ?? [];
+    expect(bridges.length).toBeGreaterThanOrEqual(1);
+    const prusaBridge = bridges.find((b) => b.id === 'prusa_railway_viaduct');
+    expect(prusaBridge).toBeDefined();
+    expect(prusaBridge!.clearance).toBeGreaterThanOrEqual(4.8);
+    expect(prusaBridge!.spanLength).toBeGreaterThanOrEqual(30);
+
     for (const edge of graph.edges) {
       expect(edge.sidewalkWidth).toBeDefined();
       expect(edge.sidewalkWidth!).toBeGreaterThan(0);

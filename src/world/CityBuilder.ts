@@ -517,6 +517,9 @@ export function buildCity(map: MapDefinition, physics: PhysicsWorld): CityBuildR
   if (map.fences && map.fences.length > 0) {
     buildFences(map, chunkBuilder, physics);
   }
+  if (map.railwayBridges && map.railwayBridges.length > 0) {
+    buildRailwayBridges(map, root, physics);
+  }
 
   // 5. Build all distinctive Landmarks
   for (const lm of map.landmarks) {
@@ -1079,6 +1082,192 @@ function buildFences(
         yaw
       );
     }
+  }
+}
+
+function buildRailwayBridges(
+  map: MapDefinition,
+  root: THREE.Group,
+  physics: PhysicsWorld
+): void {
+  const bridges = map.railwayBridges ?? [];
+  const concreteMat = new THREE.MeshLambertMaterial({ color: 0xbec3c7 });
+  const plinthMat = new THREE.MeshLambertMaterial({ color: 0x8e9398 });
+  const girderMat = new THREE.MeshLambertMaterial({ color: 0x9aa1a8 });
+  const archMat = new THREE.MeshLambertMaterial({ color: 0xd4d8dc });
+  const ballastMat = new THREE.MeshLambertMaterial({ color: 0x5c5852 });
+  const railMat = new THREE.MeshLambertMaterial({ color: 0xadb5bd });
+  const darkSteelMat = new THREE.MeshLambertMaterial({ color: 0x495057 });
+  const hazardYellowMat = new THREE.MeshLambertMaterial({ color: 0xf5b800 });
+  const hazardBlackMat = new THREE.MeshLambertMaterial({ color: 0x1e2124 });
+
+  for (const b of bridges) {
+    const g = new THREE.Group();
+    const groundY = map.heightMap.sample(b.x, b.z);
+    g.position.set(b.x, groundY, b.z);
+    g.rotation.y = b.yaw;
+
+    const halfSpan = b.spanLength * 0.5;
+    const halfW = b.deckWidth * 0.5;
+    const deckY = b.clearance;
+
+    // 1. Reinforced concrete abutments & wing walls at both ends (z = ±halfSpan)
+    for (const endSign of [-1, 1]) {
+      const az = endSign * (halfSpan + 2.4);
+      const abutH = deckY + 1.6;
+      const abut = new THREE.Mesh(new THREE.BoxGeometry(b.deckWidth + 4.4, abutH, 4.8), concreteMat);
+      abut.position.set(0, abutH * 0.5 - 0.5, az);
+      abut.castShadow = true;
+      abut.receiveShadow = true;
+      g.add(abut);
+
+      // Sloped concrete embankment wing blocks
+      for (const side of [-1, 1]) {
+        const wing = new THREE.Mesh(new THREE.BoxGeometry(3.2, abutH * 0.85, 7.5), plinthMat);
+        wing.position.set(side * (halfW + 3.6), abutH * 0.42 - 0.5, az + endSign * 1.4);
+        wing.receiveShadow = true;
+        g.add(wing);
+      }
+
+      // World-space static collider for each abutment (roadway underneath stays 100% open)
+      const sinY = Math.sin(b.yaw);
+      const cosY = Math.cos(b.yaw);
+      const wx = b.x + az * sinY;
+      const wz = b.z + az * cosY;
+      physics.createStaticBox(
+        wx,
+        groundY + abutH * 0.5 - 0.5,
+        wz,
+        (b.deckWidth + 4.4) * 0.5,
+        abutH * 0.5,
+        2.4,
+        { kind: 'building' },
+        CG.STATIC_WORLD,
+        b.yaw
+      );
+    }
+
+    // 2. Three longitudinal main steel girders (left outer, central spine above median, right outer)
+    const girderH = 1.35;
+    for (const gx of [-halfW, 0, halfW]) {
+      const girder = new THREE.Mesh(new THREE.BoxGeometry(0.75, girderH, b.spanLength + 1.2), girderMat);
+      girder.position.set(gx, deckY + girderH * 0.5, 0);
+      girder.castShadow = true;
+      girder.receiveShadow = true;
+      g.add(girder);
+    }
+
+    // U-6 yellow/black striped hazard markers on both ends of the central girder
+    for (const endSign of [-1, 1]) {
+      const mz = endSign * (halfSpan + 0.55);
+      const markerBase = new THREE.Mesh(new THREE.BoxGeometry(0.85, 1.3, 0.14), hazardYellowMat);
+      markerBase.position.set(0, deckY + 0.68, mz);
+      g.add(markerBase);
+      for (let s = -1; s <= 1; s++) {
+        const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.22, 0.16), hazardBlackMat);
+        stripe.position.set(0, deckY + 0.68 + s * 0.4, mz);
+        g.add(stripe);
+      }
+    }
+
+    // 3. Bridge deck slab, crushed ballast, and twin railway tracks on top
+    const deckSlab = new THREE.Mesh(new THREE.BoxGeometry(b.deckWidth + 0.6, 0.45, b.spanLength + 1.4), girderMat);
+    deckSlab.position.set(0, deckY + girderH - 0.1, 0);
+    deckSlab.castShadow = true;
+    deckSlab.receiveShadow = true;
+    g.add(deckSlab);
+
+    const ballast = new THREE.Mesh(new THREE.BoxGeometry(b.deckWidth - 1.2, 0.25, b.spanLength + 1.6), ballastMat);
+    ballast.position.set(0, deckY + girderH + 0.22, 0);
+    g.add(ballast);
+
+    for (const trackX of [-2.2, 2.2]) {
+      for (const railOff of [-0.72, 0.72]) {
+        const rail = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.14, b.spanLength + 2.0), railMat);
+        rail.position.set(trackX + railOff, deckY + girderH + 0.4, 0);
+        g.add(rail);
+      }
+    }
+
+    // Overhead deck collider (cars drive freely underneath at groundY)
+    physics.createStaticBox(
+      b.x,
+      groundY + deckY + girderH * 0.5,
+      b.z,
+      (b.deckWidth + 1.0) * 0.5,
+      girderH * 0.5,
+      (b.spanLength + 1.2) * 0.5,
+      { kind: 'building' },
+      CG.STATIC_WORLD,
+      b.yaw
+    );
+
+    // 4. Two parabolic bowstring steel arch ribs + 5 vertical hangers each
+    const archSegs = 16;
+    const archSpan = b.spanLength * 0.92;
+    const halfArch = archSpan * 0.5;
+    const archBaseY = deckY + girderH - 0.1;
+
+    for (const ax of [-halfW, halfW]) {
+      for (let i = 0; i < archSegs; i++) {
+        const u0 = -1 + (2 * i) / archSegs;
+        const u1 = -1 + (2 * (i + 1)) / archSegs;
+        const z0 = u0 * halfArch;
+        const z1 = u1 * halfArch;
+        const y0 = archBaseY + b.archHeight * (1 - u0 * u0);
+        const y1 = archBaseY + b.archHeight * (1 - u1 * u1);
+        const segLen = Math.hypot(z1 - z0, y1 - y0);
+        const segAng = Math.atan2(y1 - y0, z1 - z0);
+        const rib = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.85, segLen + 0.15), archMat);
+        rib.position.set(ax, (y0 + y1) * 0.5, (z0 + z1) * 0.5);
+        rib.rotation.x = -segAng;
+        rib.castShadow = true;
+        g.add(rib);
+      }
+
+      // 5 vertical hangers per arch rib
+      for (const hu of [-0.62, -0.31, 0, 0.31, 0.62]) {
+        const hz = hu * halfArch;
+        const topH = b.archHeight * (1 - hu * hu);
+        const hanger = new THREE.Mesh(new THREE.BoxGeometry(0.18, topH, 0.18), archMat);
+        hanger.position.set(ax, archBaseY + topH * 0.5, hz);
+        hanger.castShadow = true;
+        g.add(hanger);
+      }
+
+      // Cantilevered outer service walkway + safety railing posts & horizontal rails
+      const walkX = ax + Math.sign(ax) * 0.85;
+      const walkway = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.14, b.spanLength + 1.4), darkSteelMat);
+      walkway.position.set(walkX, deckY + girderH - 0.15, 0);
+      g.add(walkway);
+
+      const railX = ax + Math.sign(ax) * 1.32;
+      for (const ry of [0.35, 0.65, 0.95, 1.25]) {
+        const rBar = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, b.spanLength + 2.4), archMat);
+        rBar.position.set(railX, deckY + girderH + ry, 0);
+        g.add(rBar);
+      }
+      for (let pz = -halfSpan; pz <= halfSpan; pz += 3.2) {
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.07, 1.35, 0.07), archMat);
+        post.position.set(railX, deckY + girderH + 0.65, pz);
+        g.add(post);
+      }
+    }
+
+    // 5. Overhead railway catenary portal gantries at both ends
+    for (const endSign of [-1, 1]) {
+      const gz = endSign * (halfSpan + 0.8);
+      for (const px of [-halfW + 0.3, halfW - 0.3]) {
+        const mast = new THREE.Mesh(new THREE.BoxGeometry(0.28, 6.2, 0.28), darkSteelMat);
+        mast.position.set(px, deckY + girderH + 3.1, gz);
+        g.add(mast);
+      }
+      const crossBeam = new THREE.Mesh(new THREE.BoxGeometry(b.deckWidth, 0.26, 0.26), darkSteelMat);
+      crossBeam.position.set(0, deckY + girderH + 5.8, gz);
+      g.add(crossBeam);
+    }
+
+    root.add(g);
   }
 }
 

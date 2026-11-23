@@ -1071,6 +1071,9 @@ export function buildVectorRoads(map: MapDefinition): THREE.Group {
     const railIdx: number[] = [];
     const halfBallast = 2.6;
     const railLift = visualLift - 0.01;
+    const bridges = map.railwayBridges ?? [];
+    const insideBridge = (wx: number, wz: number): boolean =>
+      bridges.some((b) => Math.hypot(wx - b.x, wz - b.z) < b.spanLength * 0.52);
 
     for (const line of map.railLines) {
       const pts = line.points;
@@ -1088,28 +1091,31 @@ export function buildVectorRoads(map: MapDefinition): THREE.Group {
         const rx = -dz / len;
         const rz = dx / len;
         const steps = Math.max(2, Math.ceil(len / 7.5));
-        const baseV = railPos.length / 3;
-
-        for (let s = 0; s <= steps; s++) {
-          const t = s / steps;
-          const cx = x0 + dx * t;
-          const cz = z0 + dz * t;
-          const distAlong = distAcc + t * len;
-
-          for (const lat of [-halfBallast, 0, halfBallast]) {
-            const vx = cx + rx * lat;
-            const vz = cz + rz * lat;
-            railPos.push(vx, hm.sample(vx, vz) + railLift, vz);
-            railUV.push(lat, distAlong);
-          }
-        }
 
         for (let s = 0; s < steps; s++) {
+          const t0 = s / steps;
+          const t1 = (s + 1) / steps;
+          const mx = x0 + dx * ((t0 + t1) * 0.5);
+          const mz = z0 + dz * ((t0 + t1) * 0.5);
+          if (insideBridge(mx, mz)) continue;
+
+          const baseV = railPos.length / 3;
+          for (const t of [t0, t1]) {
+            const cx = x0 + dx * t;
+            const cz = z0 + dz * t;
+            const distAlong = distAcc + t * len;
+            for (const lat of [-halfBallast, 0, halfBallast]) {
+              const vx = cx + rx * lat;
+              const vz = cz + rz * lat;
+              railPos.push(vx, hm.sample(vx, vz) + railLift, vz);
+              railUV.push(lat, distAlong);
+            }
+          }
           for (let c = 0; c < 2; c++) {
-            const i00 = baseV + s * 3 + c;
-            const i01 = baseV + s * 3 + (c + 1);
-            const i10 = baseV + (s + 1) * 3 + c;
-            const i11 = baseV + (s + 1) * 3 + (c + 1);
+            const i00 = baseV + c;
+            const i01 = baseV + (c + 1);
+            const i10 = baseV + 3 + c;
+            const i11 = baseV + 3 + (c + 1);
             railIdx.push(i00, i01, i11, i00, i11, i10);
           }
         }

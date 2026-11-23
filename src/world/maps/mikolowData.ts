@@ -7,6 +7,7 @@ import {
   LandmarkDef,
   MapDefinition,
   RailLineDef,
+  RailwayBridgeDef,
   RampDef,
   SidewalkSpot,
 } from '../mapData';
@@ -2829,6 +2830,19 @@ const MIKOLOW_GREEN_ZONES: readonly GreenZoneDef[] = [
   { id: "laka_6", name: "Łąki Wymyślanka 6", kind: "meadow", treeDensity: 0.18, polygon: [[-540.6, 436.6], [-513.7, 423.7], [-483.4, 401.3], [-461.4, 392], [-424.6, 368.1], [-401.3, 352], [-386.4, 342.5], [-348, 316.5], [-326.5, 291.4], [-311.4, 274.4], [-318.1, 260.2], [-367.6, 301.1], [-420.5, 329.9], [-438.5, 290.4], [-465.8, 303.8], [-500.8, 317.2], [-489.6, 362.7], [-548.1, 374.5]] },
   { id: "las_4", name: "Las Jamna / Reta 4", kind: "forest", treeDensity: 0.88, polygon: [[296.7, -984.2], [302.7, -1025], [308, -1043.8], [315.2, -1064.2], [328.1, -1080.2], [347.5, -1101], [448.3, -1134.7], [476.8, -1144.8], [450.7, -1110.2], [427.4, -1080], [405.4, -1055.8], [380.4, -1033.7], [357.1, -1014.8], [313.6, -990]] },
   { id: "las_reta_nw", name: "Las Reta Północna", kind: "forest", treeDensity: 0.85, polygon: [[-866.8, -1185], [-762.2, -1185], [-897.2, -1185], [-866.8, -1185], [-862.2, -1156], [-813.3, -1151.6], [-819.8, -1101.4], [-776.1, -1095], [-782, -1067.3], [-829.1, -1087.3], [-831.9, -1062.2], [-867.3, -1074.6], [-899, -1105.3], [-908.5, -1170.2], [-904.5, -1185]] },
+];
+
+const MIKOLOW_RAILWAY_BRIDGES: readonly RailwayBridgeDef[] = [
+  {
+    id: 'prusa_railway_viaduct',
+    x: -401.1,
+    z: -190.1,
+    yaw: 2.271,
+    spanLength: 38.0,
+    deckWidth: 11.5,
+    clearance: 5.3,
+    archHeight: 7.2,
+  },
 ];
 
 const MIKOLOW_RAIL_LINES: readonly RailLineDef[] = [
@@ -6571,6 +6585,7 @@ export function createMikolowMapDefinition(): MapDefinition {
     sidewalkSpots,
     greenZones,
     railLines,
+    railwayBridges: MIKOLOW_RAILWAY_BRIDGES.map((b) => ({ ...b })),
     customBuildings,
     fences,
     disableDefaultGridBuildings: true,
