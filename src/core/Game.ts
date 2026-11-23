@@ -111,6 +111,7 @@ export class Game {
   private worldLoaded = false;
 
   private rng = new Rng(1);
+  private specialFareRng = new Rng(1);
   private timeSec = 0;
   private stateTimer = 0;
   private lowTimeTickAccum = 0;
@@ -417,6 +418,7 @@ export class Game {
     const preset = GRAPHICS_PRESETS[s.graphicsPreset];
 
     this.audio.setVolumes(s.masterVolume, s.musicVolume, s.sfxVolume);
+    this.audio.setSpecialSoundsEnabled(s.specialFareSounds);
     this.chaseCam.shakeEnabled = s.cameraShake;
     this.ui.hud.setVignette(preset.vignette);
     this.fx.setMaxParticles(preset.maxParticles);
@@ -473,12 +475,15 @@ export class Game {
     this.loop.timeScale = 1.0;
     this.nitroActive = false;
     this.vehicle.setGhost(false);
+    this.audio.stopSpecialSounds();
     this.setState('MainMenu');
   }
 
   public startNewShift(forcedSeed?: number): void {
     const seed = forcedSeed ?? Math.floor(Math.random() * 899999 + 100000);
     this.rng = new Rng(seed);
+    this.specialFareRng = this.rng.fork('special_fare');
+    this.audio.stopSpecialSounds();
     this.shift.reset(seed);
     this.powerManager.reset();
     this.shop.reset();
@@ -848,6 +853,7 @@ export class Game {
             const award = this.shift.style.addEvent('prop', BALANCE.styleBreakPropPoints, mult, 'SMASH');
             for (const f of this.shift.activeFares) f.stylePoints += award.points;
             this.ui.hud.showPopup(award.label, '#ffd600');
+            this.maybePlaySpecialAccident();
           }
         }
         continue;
@@ -867,6 +873,10 @@ export class Game {
         const hit = this.shift.safety.recordWallHit(impulse, strict);
         if (hit) {
           this.onVehicleCrash('wall', impulse, hit.penalty, hit.carDamage, inBreak, powerCtx);
+        }
+      } else if (other.kind === 'ground' && impulse > 1200) {
+        if (!inBreak) {
+          this.maybePlaySpecialAccident();
         }
       }
     }
@@ -899,6 +909,7 @@ export class Game {
         f.accidents += 1;
       }
       this.speakPassenger('angry');
+      this.maybePlaySpecialAccident();
       const ev = { kind, impulse, penalty };
       this.events.emit('safety:collision', ev);
       this.powerManager.dispatch('safety:collision', ev, powerCtx);
@@ -938,6 +949,9 @@ export class Game {
           '#ff3d57'
         );
         this.speakPassenger('angry');
+        if (!ex.isChain) {
+          this.maybePlaySpecialAccident();
+        }
       }
       if (ex.passengerId) {
         this.spawner.removeById(ex.passengerId);
@@ -1029,6 +1043,7 @@ export class Game {
       }
       if (l.dropHeight > BALANCE.safetyHardLandingDropMeters && !l.clean) {
         this.applyCarDamage(BALANCE.damageHardLanding, 'landing');
+        this.maybePlaySpecialAccident();
       }
 
       const ev = { airtime: l.airtime, clean: l.clean, dropHeight: l.dropHeight };
@@ -1268,6 +1283,11 @@ export class Game {
     const wp = this.spawner.waiting[idx];
     this.spawner.waiting.splice(idx, 1);
 
+    const hasSpecialAudio = this.shift.specialFare.rollForPickup(
+      this.storage.settings.specialFareSounds,
+      this.specialFareRng
+    );
+
     const fare = createActiveFare({
       id: wp.id,
       passenger: wp.type,
@@ -1279,6 +1299,7 @@ export class Game {
       routeLength: wp.routeLength,
       tier: this.shift.tier,
       patienceStatMult: this.stats.get('passenger.patienceMult'),
+      hasSpecialAudio,
     });
 
     if (this.shift.activeFares.length === 0) {
@@ -1337,6 +1358,9 @@ export class Game {
     this.grantTime(rewards.deliveryTimeBonus, 'Delivery');
     this.audio.playDeliveryCashRegister();
     this.audio.playGradeStamp(ratings.grade);
+    if (fare.hasSpecialAudio && this.storage.settings.specialFareSounds) {
+      this.audio.playSpecialClientExit();
+    }
 
     const isGrandmaPerfect = fare.passenger.id === 'grandma' && perfectDrive;
     const stampText = isGrandmaPerfect
@@ -1378,6 +1402,18 @@ export class Game {
     if (triggerDraft) {
       this.openPowerDraft();
     }
+  }
+
+  private hasSpecialAudioFareOnBoard(): boolean {
+    return (
+      this.storage.settings.specialFareSounds &&
+      this.shift.activeFares.some((f) => f.hasSpecialAudio)
+    );
+  }
+
+  private maybePlaySpecialAccident(): void {
+    if (!this.hasSpecialAudioFareOnBoard()) return;
+    this.audio.playSpecialAccident(() => this.specialFareRng.next());
   }
 
   private speakPassenger(kind: 'happy' | 'angry' | 'ruleBreak' | 'panic'): void {

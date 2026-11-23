@@ -7,6 +7,7 @@ import { ActiveFare } from './Fare';
 import { RulesTracker } from './RulesTracker';
 import { SafetyTracker } from './SafetyTracker';
 import { ShiftTimer } from './ShiftTimer';
+import { SpecialFareTracker } from './SpecialFareTracker';
 import { StyleTracker } from './StyleTracker';
 import { Wallet } from './Wallet';
 
@@ -42,6 +43,7 @@ export class Shift {
   public readonly rules = new RulesTracker();
   public readonly breakMode = new BreakMode();
   public readonly difficulty = new Difficulty();
+  public readonly specialFare = new SpecialFareTracker();
 
   public activeFares: ActiveFare[] = [];
   public deliveries = 0;
@@ -70,6 +72,7 @@ export class Shift {
     this.rules.resetShift();
     this.breakMode.reset();
     this.difficulty.reset();
+    this.specialFare.reset();
     this.activeFares = [];
     this.deliveries = 0;
     this.deliveriesUntilDraft = BALANCE.deliveriesPerDraft;

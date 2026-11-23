@@ -26,6 +26,7 @@ export interface ActiveFare {
   accidents: number;
   ruleViolations: number;
   stopHoldTimer: number;
+  hasSpecialAudio: boolean;
 }
 
 export function createActiveFare(params: {
@@ -39,6 +40,7 @@ export function createActiveFare(params: {
   routeLength: number;
   tier: number;
   patienceStatMult: number;
+  hasSpecialAudio?: boolean;
 }): ActiveFare {
   const parTime = computeParTime(params.routeLength, params.tier, params.passenger.parMult);
   const patienceMax =
@@ -61,6 +63,7 @@ export function createActiveFare(params: {
     accidents: 0,
     ruleViolations: 0,
     stopHoldTimer: 0,
+    hasSpecialAudio: params.hasSpecialAudio ?? false,
   };
 }
 

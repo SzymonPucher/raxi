@@ -12,6 +12,7 @@ export interface GameSettings {
   speedUnits: 'kmh' | 'mph';
   showControls: boolean;
   navPointNearestPassenger: boolean;
+  specialFareSounds: boolean;
   selectedMap: MapId;
 }
 
@@ -50,6 +51,7 @@ export const DEFAULT_SETTINGS: GameSettings = {
   speedUnits: 'kmh',
   showControls: true,
   navPointNearestPassenger: true,
+  specialFareSounds: false,
   selectedMap: 'raxi_city',
 };
 
@@ -94,6 +96,7 @@ export class Storage {
       settings.masterVolume = clamp01(settings.masterVolume);
       settings.musicVolume = clamp01(settings.musicVolume);
       settings.sfxVolume = clamp01(settings.sfxVolume);
+      settings.specialFareSounds = Boolean(settings.specialFareSounds);
       settings.resolutionScale = Math.max(0.5, Math.min(1.0, Number(settings.resolutionScale) || 1));
 
       const highScores = Array.isArray(parsed.highScores)

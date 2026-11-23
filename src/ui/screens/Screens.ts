@@ -242,6 +242,10 @@ export function renderSettings(
         <label>Show Controls Hint</label>
         <button class="raxi-btn" id="s-ctrl" style="padding:6px 14px;font-size:14px">${settings.showControls ? 'ON' : 'OFF'}</button>
       </div>
+      <div class="settings-row">
+        <label>Special Fare Sounds</label>
+        <button class="raxi-btn" id="s-special-sounds" style="padding:6px 14px;font-size:14px">${settings.specialFareSounds ? 'ON' : 'OFF'}</button>
+      </div>
       <div class="btn-row"><button class="raxi-btn primary" id="s-back">DONE</button></div>
     </div>
   `;
@@ -287,10 +291,17 @@ export function renderSettings(
     cb.onUpdateSettings({ showControls: next });
   };
 
+  const specialSoundsBtn = container.querySelector<HTMLButtonElement>('#s-special-sounds')!;
+  specialSoundsBtn.onclick = () => {
+    const next = !settings.specialFareSounds;
+    specialSoundsBtn.textContent = next ? 'ON' : 'OFF';
+    cb.onUpdateSettings({ specialFareSounds: next });
+  };
+
   const backBtn = container.querySelector<HTMLButtonElement>('#s-back')!;
   backBtn.onclick = () => cb.onCloseSubscreen();
 
-  return [shakeBtn, unitsBtn, ctrlBtn, backBtn];
+  return [shakeBtn, unitsBtn, ctrlBtn, specialSoundsBtn, backBtn];
 }
 
 export function renderDraftScreen(

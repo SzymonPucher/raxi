@@ -1,4 +1,15 @@
 import { EngineSound } from './EngineSound';
+import accident1Url from '../../audio/accident_1.mp3';
+import accident2Url from '../../audio/accident_2.mp3';
+import clientExitUrl from '../../audio/client_exit.mp3';
+
+type SpecialClipKey = 'accident1' | 'accident2' | 'clientExit';
+
+const SPECIAL_CLIP_URLS: Record<SpecialClipKey, string> = {
+  accident1: accident1Url,
+  accident2: accident2Url,
+  clientExit: clientExitUrl,
+};
 
 /**
  * Pure Web Audio API sound & arcade music manager (§12).
@@ -22,6 +33,17 @@ export class AudioManager {
   private musicTimer = 0;
   private hornCooldown = 0;
   private noiseBuffer: AudioBuffer | null = null;
+
+  private specialSoundsEnabled = false;
+  private specialBuffers: Record<SpecialClipKey, AudioBuffer | null> = {
+    accident1: null,
+    accident2: null,
+    clientExit: null,
+  };
+  private specialLoadPromise: Promise<void> | null = null;
+  private specialVoiceSource: AudioBufferSourceNode | null = null;
+  private specialAccidentCooldown = 0;
+  private specialRequestSeq = 0;
 
   unlock(): void {
     if (typeof window === 'undefined') return;
@@ -48,6 +70,110 @@ export class AudioManager {
     if (this.ctx.state === 'suspended') {
       this.ctx.resume().catch(() => {});
     }
+    if (this.specialSoundsEnabled) {
+      void this.preloadSpecialSounds();
+    }
+  }
+
+  setSpecialSoundsEnabled(enabled: boolean): void {
+    this.specialSoundsEnabled = enabled;
+    if (enabled) {
+      if (this.ctx) {
+        void this.preloadSpecialSounds();
+      }
+    } else {
+      this.stopSpecialSounds();
+    }
+  }
+
+  stopSpecialSounds(): void {
+    this.specialRequestSeq += 1;
+    this.specialAccidentCooldown = 0;
+    if (this.specialVoiceSource) {
+      try {
+        this.specialVoiceSource.stop();
+      } catch {
+        // Ignore if already stopped
+      }
+      this.specialVoiceSource = null;
+    }
+  }
+
+  private preloadSpecialSounds(): Promise<void> {
+    if (!this.ctx || typeof fetch === 'undefined') {
+      return Promise.resolve();
+    }
+    if (this.specialLoadPromise) {
+      return this.specialLoadPromise;
+    }
+    const ctx = this.ctx;
+    const keys: SpecialClipKey[] = ['accident1', 'accident2', 'clientExit'];
+    this.specialLoadPromise = Promise.all(
+      keys.map(async (key) => {
+        try {
+          const res = await fetch(SPECIAL_CLIP_URLS[key]);
+          if (!res.ok) return;
+          const arr = await res.arrayBuffer();
+          this.specialBuffers[key] = await ctx.decodeAudioData(arr);
+        } catch {
+          // Ignore asset fetch/decode errors
+        }
+      })
+    ).then(() => undefined);
+    return this.specialLoadPromise;
+  }
+
+  private playSpecialClip(key: SpecialClipKey): void {
+    if (!this.specialSoundsEnabled || !this.ctx || !this.sfxGain) return;
+    if (this.ctx.state === 'suspended') {
+      this.ctx.resume().catch(() => {});
+    }
+    const reqSeq = ++this.specialRequestSeq;
+    const startBuffer = (buffer: AudioBuffer) => {
+      if (!this.specialSoundsEnabled || !this.ctx || !this.sfxGain || reqSeq !== this.specialRequestSeq) {
+        return;
+      }
+      if (this.specialVoiceSource) {
+        try {
+          this.specialVoiceSource.stop();
+        } catch {
+          // Ignore if already stopped
+        }
+        this.specialVoiceSource = null;
+      }
+      const src = this.ctx.createBufferSource();
+      src.buffer = buffer;
+      src.connect(this.sfxGain);
+      src.onended = () => {
+        if (this.specialVoiceSource === src) {
+          this.specialVoiceSource = null;
+        }
+      };
+      this.specialVoiceSource = src;
+      src.start();
+    };
+
+    const existing = this.specialBuffers[key];
+    if (existing) {
+      startBuffer(existing);
+      return;
+    }
+    void this.preloadSpecialSounds().then(() => {
+      const loaded = this.specialBuffers[key];
+      if (loaded) startBuffer(loaded);
+    });
+  }
+
+  playSpecialAccident(randomUnit?: () => number): void {
+    if (!this.specialSoundsEnabled || this.specialAccidentCooldown > 0) return;
+    this.specialAccidentCooldown = 0.45;
+    const r = randomUnit ? randomUnit() : Math.random();
+    this.playSpecialClip(r < 0.5 ? 'accident1' : 'accident2');
+  }
+
+  playSpecialClientExit(): void {
+    if (!this.specialSoundsEnabled) return;
+    this.playSpecialClip('clientExit');
   }
 
   setVolumes(master: number, music: number, sfx: number): void {
@@ -82,6 +208,9 @@ export class AudioManager {
     }
   ): void {
     if (this.hornCooldown > 0) this.hornCooldown -= dt;
+    if (this.specialAccidentCooldown > 0) {
+      this.specialAccidentCooldown = Math.max(0, this.specialAccidentCooldown - dt);
+    }
     this.engine.update({ ...engineParams, ctx: this.ctx, dt });
 
     // Upbeat synth-pop / dance-pop loop sequencer (16th-note grid, 8 bars = 128 steps)
