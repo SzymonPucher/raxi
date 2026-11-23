@@ -182,6 +182,9 @@ export function buildCity(map: MapDefinition, physics: PhysicsWorld): CityBuildR
   if (map.customBuildings && map.customBuildings.length > 0) {
     buildCustomBuildings(map, chunkBuilder, physics);
   }
+  if (map.fences && map.fences.length > 0) {
+    buildFences(map, chunkBuilder, physics);
+  }
 
   // 5. Build all distinctive Landmarks
   for (const lm of map.landmarks) {
@@ -371,6 +374,76 @@ function buildCustomBuildings(
   for (let idx = 0; idx < buildings.length; idx++) {
     const b: CustomBuildingDef = buildings[idx];
     const rotY = b.rotY ?? 0;
+
+    // Exact polygonal footprint path for detailed street-view buildings (e.g. Stolarska & Dąbrowskiego)
+    if (b.polygon && b.polygon.length >= 3) {
+      const poly = ensurePositiveXZArea(b.polygon);
+      let cx = 0;
+      let cz = 0;
+      let minY = Infinity;
+      for (const [px, pz] of poly) {
+        cx += px;
+        cz += pz;
+        const py = map.heightMap.sample(px, pz);
+        if (py < minY) minY = py;
+      }
+      cx /= poly.length;
+      cz /= poly.length;
+      const centerY = map.heightMap.sample(cx, cz);
+      if (centerY < minY) minY = centerY;
+
+      const foundationBottom = minY - 1.5;
+      const plinthTop = centerY + 0.4;
+      const topY = centerY + b.h;
+      const commitPoly = (geo: THREE.BufferGeometry, color: number, mat: 'buildings' | 'landmarks') => {
+        if (unifiedChunkMat && mat === 'landmarks') {
+          setSolidUVs(geo);
+          chunks.addGeometry(cx, cz, 'buildings', geo, color);
+        } else {
+          chunks.addGeometry(cx, cz, mat, geo, color);
+        }
+        geo.dispose();
+      };
+
+      commitPoly(createPolygonWallsGeometry(poly, foundationBottom, plinthTop, 0.12), 0x5c5750, 'landmarks');
+      commitPoly(createPolygonWallsGeometry(poly, plinthTop, topY, 0, 9.5, 10.5), b.color, 'buildings');
+
+      const roofColor = b.roofColor ?? domekRoofPalette[idx % domekRoofPalette.length];
+      const rStyle = b.roofStyle ?? (b.style === 'blok' ? 'flat' : 'gable');
+      if (rStyle === 'flat') {
+        commitPoly(createPolygonWallsGeometry(poly, topY - 0.3, topY + 0.45, 0.18), 0x4f565e, 'landmarks');
+        const cap = createPolygonCapGeometry(poly, topY + 0.15);
+        if (cap) commitPoly(cap, roofColor, 'landmarks');
+      } else {
+        // Stepped pitched roof over exact L/T/polygonal footprint + eaves cornice
+        commitPoly(createPolygonWallsGeometry(poly, topY - 0.25, topY + 0.22, 0.28), 0xede6d9, 'landmarks');
+        const steps = rStyle === 'hipped' ? 3 : 2;
+        const roofH = Math.min(3.2, Math.max(1.6, Math.min(b.w, b.d) * 0.24));
+        for (let s = 0; s < steps; s++) {
+          const y0 = topY + 0.2 + (s / steps) * roofH;
+          const y1 = topY + 0.2 + ((s + 1) / steps) * roofH;
+          const inset = -0.55 * (s + 1);
+          commitPoly(createPolygonWallsGeometry(poly, y0, y1, inset), roofColor, 'landmarks');
+        }
+        const cap = createPolygonCapGeometry(poly, topY + 0.2 + roofH);
+        if (cap) commitPoly(cap, roofColor, 'landmarks');
+      }
+
+      const colH = Math.max(2, topY - foundationBottom);
+      physics.createStaticBox(
+        b.x,
+        foundationBottom + colH * 0.5,
+        b.z,
+        b.w * 0.5,
+        colH * 0.5,
+        b.d * 0.5,
+        { kind: 'building' },
+        CG.STATIC_WORLD,
+        rotY
+      );
+      continue;
+    }
+
     const { centerY, minY } = sampleFootprintHeights(map, b.x, b.z, b.w, b.d, rotY);
     const foundationBottom = minY - 1.5;
     const topY = centerY + b.h;
@@ -568,6 +641,126 @@ function buildCustomBuildings(
       CG.STATIC_WORLD,
       rotY
     );
+  }
+}
+
+function buildFences(
+  map: MapDefinition,
+  chunks: ChunkBuilder,
+  physics: PhysicsWorld
+): void {
+  const fences = map.fences ?? [];
+  const unifiedChunkMat = map.id === 'mikolow';
+
+  const commit = (cx: number, cz: number, geo: THREE.BufferGeometry, color: number) => {
+    if (unifiedChunkMat) {
+      setSolidUVs(geo);
+      chunks.addGeometry(cx, cz, 'buildings', geo, color);
+    } else {
+      chunks.addGeometry(cx, cz, 'landmarks', geo, color);
+    }
+    geo.dispose();
+  };
+
+  for (const f of fences) {
+    const pts = f.points;
+    if (pts.length < 2) continue;
+
+    const h = f.height ?? (f.style === 'hedge' ? 1.35 : f.style === 'concrete_panel' ? 1.65 : 1.3);
+    const mainCol =
+      f.color ??
+      (f.style === 'hedge'
+        ? 0x3b662f
+        : f.style === 'wood_picket'
+          ? 0x8b5a36
+          : f.style === 'wire_mesh'
+            ? 0x3a5a40
+            : f.style === 'concrete_panel'
+              ? 0xb5b2aa
+              : 0x32363b);
+    const postCol =
+      f.postColor ??
+      (f.style === 'wood_picket'
+        ? 0x6b4226
+        : f.style === 'concrete_panel'
+          ? 0x8e8b84
+          : 0x45494f);
+
+    for (let i = 0; i < pts.length - 1; i++) {
+      const [x0, z0] = pts[i];
+      const [x1, z1] = pts[i + 1];
+      const dx = x1 - x0;
+      const dz = z1 - z0;
+      const len = Math.hypot(dx, dz);
+      if (len < 0.8) continue;
+
+      const mx = (x0 + x1) * 0.5;
+      const mz = (z0 + z1) * 0.5;
+      const yaw = Math.atan2(dx, dz);
+      const y0 = map.heightMap.sample(x0, z0);
+      const y1 = map.heightMap.sample(x1, z1);
+      const my = (y0 + y1) * 0.5;
+
+      if (f.style === 'hedge') {
+        const hedgeGeo = new THREE.BoxGeometry(0.65, h, len);
+        hedgeGeo.rotateY(yaw);
+        hedgeGeo.translate(mx, my + h * 0.5, mz);
+        commit(mx, mz, hedgeGeo, mainCol);
+      } else if (f.style === 'concrete_panel') {
+        const wallGeo = new THREE.BoxGeometry(0.16, h, len);
+        wallGeo.rotateY(yaw);
+        wallGeo.translate(mx, my + h * 0.5, mz);
+        commit(mx, mz, wallGeo, mainCol);
+      } else {
+        // Posts every ~2.6m + horizontal rails + vertical pickets/mesh
+        const postCount = Math.max(2, Math.round(len / 2.6) + 1);
+        for (let p = 0; p < postCount; p++) {
+          const t = p / (postCount - 1);
+          const px = x0 + dx * t;
+          const pz = z0 + dz * t;
+          const py = map.heightMap.sample(px, pz);
+          const postGeo = new THREE.BoxGeometry(0.14, h + 0.08, 0.14);
+          postGeo.rotateY(yaw);
+          postGeo.translate(px, py + (h + 0.08) * 0.5, pz);
+          commit(px, pz, postGeo, postCol);
+        }
+
+        // Top and bottom rails
+        for (const ry of [h * 0.25, h * 0.85]) {
+          const railGeo = new THREE.BoxGeometry(0.06, 0.08, len);
+          railGeo.rotateY(yaw);
+          railGeo.translate(mx, my + ry, mz);
+          commit(mx, mz, railGeo, mainCol);
+        }
+
+        if (f.style === 'metal_palisade' || f.style === 'wood_picket') {
+          const picketStep = f.style === 'wood_picket' ? 0.45 : 0.55;
+          const picketCount = Math.max(2, Math.floor(len / picketStep));
+          for (let k = 1; k < picketCount; k++) {
+            const t = k / picketCount;
+            const px = x0 + dx * t;
+            const pz = z0 + dz * t;
+            const py = map.heightMap.sample(px, pz);
+            const pGeo = new THREE.BoxGeometry(0.05, h * 0.9, 0.07);
+            pGeo.rotateY(yaw);
+            pGeo.translate(px, py + h * 0.48, pz);
+            commit(px, pz, pGeo, mainCol);
+          }
+        }
+      }
+
+      physics.createStaticBox(
+        mx,
+        my + h * 0.5,
+        mz,
+        0.18,
+        h * 0.5,
+        len * 0.5,
+        { kind: 'building' },
+        CG.STATIC_WORLD,
+        yaw
+      );
+    }
   }
 }
 

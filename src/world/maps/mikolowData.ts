@@ -1,6 +1,7 @@
 import {
   CustomBuildingDef,
   CustomBuildingStyle,
+  FenceDef,
   GarageDef,
   GreenZoneDef,
   LandmarkDef,
@@ -12,6 +13,7 @@ import {
 import { DistrictId, RoadEdge, RoadGraph, RoadNode, RoadType } from '../RoadGraph';
 import { createMikolowHeightMap, MIKOLOW_WORLD_HALF_SIZE } from './mikolowHeight';
 import { MIKOLOW_LANDMARK_SHAPES } from './mikolowLandmarkShapes';
+import { MIKOLOW_DETAILED_BUILDINGS, MIKOLOW_FENCES } from './mikolowStreetDetails';
 
 type RawNodeTuple = readonly [
   id: string,
@@ -6449,10 +6451,14 @@ export function createMikolowMapDefinition(): MapDefinition {
     y: heightMap.sample(r.x, r.z),
   }));
 
-  const customBuildings: CustomBuildingDef[] = RAW_BUILDINGS.filter(
-    ([x, z, w, d]) => !isInsideReserved(x, z, w, d)
-  ).map(
-    ([x, z, w, d, h, rotY, color, roofColor, style]) => ({
+  const inDetailedZone = (x: number, z: number): boolean =>
+    (x >= -1600 && x <= -1165 && z >= -265 && z <= 20) ||
+    (x >= 720 && x <= 985 && z >= 175 && z <= 405);
+
+  const customBuildings: CustomBuildingDef[] = [
+    ...RAW_BUILDINGS.filter(
+      ([x, z, w, d]) => !inDetailedZone(x, z) && !isInsideReserved(x, z, w, d)
+    ).map(([x, z, w, d, h, rotY, color, roofColor, style]) => ({
       x,
       z,
       w,
@@ -6462,8 +6468,14 @@ export function createMikolowMapDefinition(): MapDefinition {
       color,
       roofColor,
       style,
-    })
-  );
+    })),
+    ...MIKOLOW_DETAILED_BUILDINGS.filter((b) => !isInsideReserved(b.x, b.z, b.w, b.d)),
+  ];
+
+  const fences: FenceDef[] = MIKOLOW_FENCES.map((f) => ({
+    ...f,
+    points: f.points.map(([px, pz]) => [px, pz] as [number, number]),
+  }));
 
   // Sidewalk pickup/dropoff spots: all 16 landmarks + real Polish street addresses
   const sidewalkSpots: SidewalkSpot[] = [];
@@ -6553,6 +6565,7 @@ export function createMikolowMapDefinition(): MapDefinition {
     greenZones,
     railLines,
     customBuildings,
+    fences,
     disableDefaultGridBuildings: true,
     parkBounds: { minX: -964, maxX: -190, minZ: 210, maxZ: 680 },
     worldHalfSize: MIKOLOW_WORLD_HALF_SIZE,

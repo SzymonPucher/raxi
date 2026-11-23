@@ -329,6 +329,15 @@ describe('Mikołów, Poland MapDefinition', () => {
         expect(proj.distFromCenter).toBeGreaterThanOrEqual(proj.halfWidth * 0.8);
       }
     }
+
+    // Street-View-verified polygonal buildings & fences on ul. Stolarska and ul. Henryka Dąbrowskiego
+    const polyBlds = (map.customBuildings ?? []).filter((b) => b.polygon && b.polygon.length >= 3);
+    expect(polyBlds.some((b) => b.x < -1165)).toBe(true);
+    expect(polyBlds.some((b) => b.x > 720 && b.z > 175 && b.z < 405)).toBe(true);
+    const fences = map.fences ?? [];
+    expect(fences.length).toBeGreaterThan(50);
+    expect(fences.some((f) => f.points[0][0] < -1165)).toBe(true);
+    expect(fences.some((f) => f.points[0][0] > 720)).toBe(true);
   });
 
   it('resolves street and landmark names near Mikołów landmarks', () => {

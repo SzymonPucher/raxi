@@ -25,6 +25,16 @@ export type CustomBuildingStyle =
   | 'retail'
   | 'industrial';
 
+export type FenceStyle = 'metal_palisade' | 'wood_picket' | 'wire_mesh' | 'concrete_panel' | 'hedge';
+
+export interface FenceDef {
+  points: Array<[number, number]>;
+  height?: number;
+  color?: number;
+  postColor?: number;
+  style: FenceStyle;
+}
+
 export interface CustomBuildingDef {
   x: number;
   z: number;
@@ -35,6 +45,10 @@ export interface CustomBuildingDef {
   color: number;
   roofColor?: number;
   style: CustomBuildingStyle;
+  /** Optional exact 2D footprint polygon in world (x, z) coordinates */
+  polygon?: Array<[number, number]>;
+  /** Optional roof style override for polygonal buildings */
+  roofStyle?: 'flat' | 'gable' | 'hipped';
 }
 
 export interface MapSpawn {
@@ -150,6 +164,7 @@ export interface MapDefinition {
   greenZones?: GreenZoneDef[];
   railLines?: RailLineDef[];
   customBuildings?: CustomBuildingDef[];
+  fences?: FenceDef[];
   disableDefaultGridBuildings?: boolean;
   parkBounds: { minX: number; maxX: number; minZ: number; maxZ: number };
   worldHalfSize: number;
