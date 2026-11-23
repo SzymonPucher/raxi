@@ -311,6 +311,26 @@ describe('Mikołów, Poland MapDefinition', () => {
     expect(map.customBuildings?.length ?? 0).toBeGreaterThan(3000);
   });
 
+  it('includes varied road types/widths and keeps buildings clear of road asphalt', () => {
+    const types = new Set(graph.edges.map((e) => e.roadType));
+    expect(types.has('highway')).toBe(true);
+    expect(types.has('avenue')).toBe(true);
+    expect(types.has('street')).toBe(true);
+    expect(types.has('country')).toBe(true);
+    expect(types.has('shortcut')).toBe(true);
+
+    const widths = graph.edges.map((e) => e.width);
+    expect(Math.min(...widths)).toBeLessThan(6.0);
+    expect(Math.max(...widths)).toBeGreaterThanOrEqual(10.5);
+
+    for (const b of map.customBuildings ?? []) {
+      const proj = graph.projectPoint(b.x, b.z, 0, -1, 14);
+      if (proj && !proj.edge.isShortcut) {
+        expect(proj.distFromCenter).toBeGreaterThanOrEqual(proj.halfWidth * 0.8);
+      }
+    }
+  });
+
   it('resolves street and landmark names near Mikołów landmarks', () => {
     const baz = map.landmarks.find((l) => l.id === 'bazylika_wojciecha')!;
     const loc = getLocationLabel(map, baz.curbX, baz.curbZ, 0);
