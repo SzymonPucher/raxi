@@ -13,6 +13,7 @@ import {
 import { DistrictId, RoadEdge, RoadGraph, RoadNode, RoadType } from '../RoadGraph';
 import { createMikolowHeightMap, MIKOLOW_WORLD_HALF_SIZE } from './mikolowHeight';
 import { MIKOLOW_LANDMARK_SHAPES } from './mikolowLandmarkShapes';
+import { MIKOLOW_CITY_FENCES } from './mikolowCityFences';
 import { MIKOLOW_DETAILED_BUILDINGS, MIKOLOW_FENCES } from './mikolowStreetDetails';
 
 type RawNodeTuple = readonly [
@@ -6472,7 +6473,7 @@ export function createMikolowMapDefinition(): MapDefinition {
     ...MIKOLOW_DETAILED_BUILDINGS.filter((b) => !isInsideReserved(b.x, b.z, b.w, b.d)),
   ];
 
-  const fences: FenceDef[] = MIKOLOW_FENCES.map((f) => ({
+  const fences: FenceDef[] = [...MIKOLOW_FENCES, ...MIKOLOW_CITY_FENCES].map((f) => ({
     ...f,
     points: f.points.map(([px, pz]) => [px, pz] as [number, number]),
   }));

@@ -335,7 +335,7 @@ describe('Mikołów, Poland MapDefinition', () => {
     expect(polyBlds.some((b) => b.x < -1165)).toBe(true);
     expect(polyBlds.some((b) => b.x > 720 && b.z > 175 && b.z < 405)).toBe(true);
     const fences = map.fences ?? [];
-    expect(fences.length).toBeGreaterThan(50);
+    expect(fences.length).toBeGreaterThan(2000);
     expect(fences.some((f) => f.points[0][0] < -1165)).toBe(true);
     expect(fences.some((f) => f.points[0][0] > 720)).toBe(true);
   });
