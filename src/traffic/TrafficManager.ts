@@ -96,6 +96,32 @@ export class TrafficManager {
     return this.carById.get(id);
   }
 
+  /**
+   * Pre-impact pass run before physics.step(): switches any kinematic traffic car that is
+   * about to touch the player into a dynamic rigid body so Rapier never treats it as an
+   * infinite-mass battering ram that catapults the player away.
+   */
+  preparePlayerCollisions(player: ArcadeVehicle): void {
+    if (player.isGhost) return;
+    const px = player.currPosition.x;
+    const py = player.currPosition.y;
+    const pz = player.currPosition.z;
+    const pSpeed = player.speed;
+    const lookahead = Math.min(2.2, pSpeed * 0.045);
+
+    for (let i = 0; i < this.cars.length; i++) {
+      const c = this.cars[i];
+      if (!c.active || c.knocked) continue;
+      if (Math.abs(c.y - py) > 2.6) continue;
+      const reach = (c.spec.l + 4.4) * 0.5 + 0.9 + lookahead;
+      const dx = c.x - px;
+      const dz = c.z - pz;
+      if (dx * dx + dz * dz <= reach * reach) {
+        c.wakeDynamicForCollision();
+      }
+    }
+  }
+
   knockCarById(id: number, playerVel: THREE.Vector3, bulldozer: boolean): void {
     const car = this.carById.get(id);
     if (!car || !car.active) return;
@@ -327,8 +353,8 @@ export class TrafficManager {
           moveDirZ = pt.tz / tLen;
         }
         nx = pt.x;
-        ny = turn.y0 + (turn.y2 - turn.y0) * u + c.spec.h * 0.5 + 0.12;
         nz = pt.z;
+        ny = this.map.heightMap.sample(nx, nz) + c.spec.h * 0.5 + 0.04;
         nyaw = Math.atan2(-moveDirX, -moveDirZ);
 
         if (u >= 1) {
@@ -344,7 +370,6 @@ export class TrafficManager {
         const fromN = this.map.graph.getNode(c.forward ? edge.from : edge.to)!;
         const toN = this.map.graph.getNode(c.forward ? edge.to : edge.from)!;
         const dx = toN.x - fromN.x;
-        const dy = toN.y - fromN.y;
         const dz = toN.z - fromN.z;
         const len = Math.max(0.01, Math.hypot(dx, dz));
         const turnMargin = getTurnMargin(len);
@@ -365,8 +390,8 @@ export class TrafficManager {
             0
           );
           nx = pt.x;
-          ny = turnCurve.y0 + c.spec.h * 0.5 + 0.12;
           nz = pt.z;
+          ny = this.map.heightMap.sample(nx, nz) + c.spec.h * 0.5 + 0.04;
           moveDirX = dx / len;
           moveDirZ = dz / len;
           nyaw = Math.atan2(-moveDirX, -moveDirZ);
@@ -378,13 +403,14 @@ export class TrafficManager {
           const rz = moveDirX;
           const lat = c.laneOffset + c.swerveOffset;
           nx = fromN.x + dx * tFrac + rx * lat;
-          ny = fromN.y + dy * tFrac + c.spec.h * 0.5 + 0.12;
           nz = fromN.z + dz * tFrac + rz * lat;
+          ny = this.map.heightMap.sample(nx, nz) + c.spec.h * 0.5 + 0.04;
           nyaw = Math.atan2(-moveDirX, -moveDirZ);
         }
       }
 
-      c.setKinematicPose(nx, ny, nz, nyaw);
+      const slopePitch = this.map.heightMap.sampleSlope(nx, nz, moveDirX, moveDirZ);
+      c.setKinematicPose(nx, ny, nz, nyaw, slopePitch);
 
       // Near miss check (§9.4)
       if (detectNearMisses && c.nearMissCooldown <= 0 && !player.isGhost) {
@@ -546,7 +572,6 @@ export class TrafficManager {
       const fromN = forward ? a : b;
       const toN = forward ? b : a;
       const dx = toN.x - fromN.x;
-      const dy = toN.y - fromN.y;
       const dz = toN.z - fromN.z;
       const len = Math.max(1, Math.hypot(dx, dz));
       const margin = getTurnMargin(len);
@@ -559,8 +584,8 @@ export class TrafficManager {
       const dirX = dx / len;
       const dirZ = dz / len;
       const sx = fromN.x + dx * t - dirZ * laneOffset;
-      const sy = fromN.y + dy * t + slot.spec.h * 0.5 + 0.12;
       const sz = fromN.z + dz * t + dirX * laneOffset;
+      const sy = this.map.heightMap.sample(sx, sz) + slot.spec.h * 0.5 + 0.04;
 
       if (this.cars.some((o) => o.active && Math.hypot(o.x - sx, o.z - sz) < 13)) continue;
 

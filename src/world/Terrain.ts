@@ -1,20 +1,24 @@
 import * as THREE from 'three';
 import { CG } from '../physics/collisionGroups';
 import { PhysicsWorld } from '../physics/PhysicsWorld';
-import { MapDefinition, getTerrainHeight } from './mapData';
+import { MapDefinition } from './mapData';
+import { buildVectorRoads } from './VectorRoads';
 
 /**
- * Generates the low-res terrain mesh across the 2.4x2.4 km map
- * with roads carved/flattened smoothly to road elevations and perimeter walls.
+ * Generates ONE single terrain mesh + ONE single Rapier terrain collider directly from
+ * `map.heightMap`, overlaid with resolution-independent analytic GLSL vector roads
+ * whose vertices conform strictly to `map.heightMap.sample(x, z)` (zero separate road colliders).
  */
 export function buildTerrain(
   map: MapDefinition,
   physics: PhysicsWorld
 ): { group: THREE.Group; groundColliderHandle: number } {
   const group = new THREE.Group();
-  const size = map.worldHalfSize * 2;
-  const segments = 96; // 96x96 = 18k tris, crisp hills and fast physics trimesh
-  const geo = new THREE.PlaneGeometry(size, size, segments, segments);
+  const hm = map.heightMap;
+  const size = hm.worldHalfSize * 2;
+  const seg = hm.segments;
+
+  const geo = new THREE.PlaneGeometry(size, size, seg, seg);
   geo.rotateX(-Math.PI * 0.5);
 
   const pos = geo.attributes.position as THREE.BufferAttribute;
@@ -24,39 +28,33 @@ export function buildTerrain(
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i);
     const z = pos.getZ(i);
-    let y = getTerrainHeight(x, z);
-
-    // Flatten terrain neatly under any road edge
-    const proj = map.graph.projectPoint(x, z, 0, -1, 22);
-    if (proj) {
-      const flatDist = proj.halfWidth + 5;
-      if (proj.distFromCenter < flatDist) {
-        y = proj.closestY - 0.04;
-      } else {
-        const blend = (proj.distFromCenter - flatDist) / (22 - flatDist);
-        y = THREE.MathUtils.lerp(proj.closestY - 0.04, y, blend);
-      }
-    }
-
+    const y = hm.heights[i];
     pos.setY(i, y);
 
-    // Vertex colors per zone (2012 bright cartoony palette §6.4)
-    if (x >= map.parkBounds.minX && x <= map.parkBounds.maxX && z >= map.parkBounds.minZ && z <= map.parkBounds.maxZ) {
-      c.setHex(0x52b755); // vibrant central park grass
-    } else if (Math.abs(x) <= 550 && Math.abs(z) <= 550) {
+    // Clean vertex colors for ground biomes & city districts
+    if (
+      x >= map.parkBounds.minX &&
+      x <= map.parkBounds.maxX &&
+      z >= map.parkBounds.minZ &&
+      z <= map.parkBounds.maxZ
+    ) {
+      c.setHex(0x52b755); // Central Park grass
+    } else if (Math.abs(x) <= 555 && Math.abs(z) <= 555) {
       if (x > 190) {
-        c.setHex(0x8c8780); // industrial concrete lot
-      } else if (Math.abs(x) <= 200 && z >= -200 && z <= 220) {
-        c.setHex(0x9ca3ab); // downtown plaza stone
+        c.setHex(0x8c8780); // Industrial / Docks concrete
+      } else if (Math.abs(x) <= 195 && z >= -195 && z <= 220) {
+        c.setHex(0x9ca3ab); // Downtown plaza stone
       } else {
-        c.setHex(0x76b85a); // residential lawn
+        c.setHex(0x76b85a); // Residential lawn
       }
-    } else if (y > 22) {
-      c.setHex(0x7c858c); // mountain rock
-    } else if (Math.hypot(x + 850, z + 760) < 160) {
-      c.setHex(0xc49c6e); // quarry ochre
+    } else if (Math.abs(x + 820) < 115 && Math.abs(z - 760) < 55) {
+      c.setHex(0x6d757d); // Airfield tarmac
+    } else if (Math.hypot(x + 850, z + 760) < 155) {
+      c.setHex(0xc49c6e); // Quarry ochre
+    } else if (y > 20) {
+      c.setHex(0x7c858c); // Perimeter mountain rock
     } else {
-      c.setHex(0x6da64f); // outskirts meadow
+      c.setHex(0x6da64f); // Outskirts rolling meadow
     }
 
     colors[i * 3] = c.r;
@@ -72,13 +70,17 @@ export function buildTerrain(
   mesh.receiveShadow = true;
   group.add(mesh);
 
-  // Build Rapier trimesh collider directly from the displaced terrain geometry
+  // Drape infinite-resolution analytic GLSL vector roads onto the exact same heightmap!
+  const vectorRoads = buildVectorRoads(map);
+  group.add(vectorRoads);
+
+  // Single authoritative Rapier terrain collider — zero separate road colliders!
   const vertices = new Float32Array(pos.array as Float32Array);
   const idxAttr = geo.index!;
   const indices = new Uint32Array(idxAttr.array);
   const col = physics.createStaticTrimesh(vertices, indices, { kind: 'ground' }, CG.GROUND);
 
-  // Invisible boundary walls at ±1140 so car never drives off the world (§6.1)
+  // Invisible perimeter walls at ±1140 so car stays inside the world
   const bound = map.worldHalfSize - 60;
   const wallH = 30;
   const wallT = 10;

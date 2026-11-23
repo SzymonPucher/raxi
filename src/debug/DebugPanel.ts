@@ -144,7 +144,7 @@ export class DebugPanel {
         {
           fn: () => {
             const pt = teleportTargets[this.metrics.landmarkTarget];
-            if (pt) actions.teleportTo(pt.x, 2.5, pt.z);
+            if (pt) actions.teleportTo(pt.x, map.heightMap.sample(pt.x, pt.z) + 1.5, pt.z);
           },
         },
         'fn'

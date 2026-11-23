@@ -139,7 +139,13 @@ export class Game {
     // 3. Input, Vehicle, Camera, FX
     this.input = new InputManager(this.storage.bindings);
     this.vehicleStats = new VehicleStats(this.stats);
-    this.vehicle = new ArcadeVehicle(this.physics, this.vehicleStats, new THREE.Vector3(0, 1.2, 65), 0);
+    this.vehicle = new ArcadeVehicle(
+      this.physics,
+      this.vehicleStats,
+      this.map.heightMap,
+      new THREE.Vector3(0, 1.2, 65),
+      0
+    );
     this.vehicleVisual = new VehicleVisual(this.vehicle);
     this.scene.add(this.vehicleVisual.root);
 
@@ -663,9 +669,12 @@ export class Game {
       this.stats.get('traffic.density');
     const nearMisses = this.traffic.update(dt, this.vehicle, targetTraffic, this.rng, !inBreak);
 
-    // 4. Physics step + contacts
+    // 4. Physics step + contacts (wake nearby kinematic traffic & clamp catapult spikes)
+    this.traffic.preparePlayerCollisions(this.vehicle);
+    this.vehicle.capturePreStepVelocity();
     const contacts: CollisionContactEvent[] = [];
     this.physics.step(dt, (ev) => contacts.push(ev));
+    this.vehicle.clampPostStepVelocity();
     this.vehicle.syncFromBody();
 
     // 5. Process contacts (traffic hits, wall hits, breakable props)

@@ -1,3 +1,4 @@
+import { HeightMap } from './HeightMap';
 import { DistrictId, RoadEdge, RoadGraph, RoadNode, RoadType } from './RoadGraph';
 
 export interface LandmarkDef {
@@ -50,6 +51,7 @@ export interface SidewalkSpot {
 
 export interface MapDefinition {
   graph: RoadGraph;
+  heightMap: HeightMap;
   landmarks: LandmarkDef[];
   garages: GarageDef[];
   ramps: RampDef[];
@@ -84,25 +86,28 @@ export function getDistrictAt(x: number, z: number): DistrictId {
 }
 
 /**
- * Outskirts elevation function (0 inside city core & roads; rolling hills in outskirts).
+ * Single continuous terrain elevation function (flat across city core & ring highway,
+ * smooth rolling hills in the outskirts).
  */
 export function getTerrainHeight(x: number, z: number): number {
-  const distFromCore = Math.max(Math.abs(x) - 560, Math.abs(z) - 560);
-  if (distFromCore <= 0) return 0;
-  const blend = Math.min(1, distFromCore / 180);
+  // Keep city core & ring highway (±665) smoothly flat at y = 0
+  const distFromFlat = Math.max(Math.abs(x) - 665, Math.abs(z) - 665);
+  if (distFromFlat <= 0) return 0;
+  const blend = Math.min(1, distFromFlat / 200);
+  const smoothBlend = blend * blend * (3 - 2 * blend); // smoothstep
 
-  // Rolling hills in outskirts & Hilltop Lookout
+  // Gentle rolling hills in outskirts
   const hill =
-    (Math.sin(x * 0.0055) * Math.cos(z * 0.0055) * 14 +
-      Math.sin((x + z) * 0.0032) * 10 +
-      10) *
-    blend;
+    (Math.sin(x * 0.0045) * Math.cos(z * 0.0045) * 11 +
+      Math.sin((x + z) * 0.0028) * 7 +
+      8) *
+    smoothBlend;
 
-  // Quarry pit in NW outskirts around (-850, -760)
+  // Quarry shallow basin in NW outskirts around (-850, -760)
   const qDist = Math.hypot(x + 850, z + 760);
   if (qDist < 150) {
     const qFactor = Math.cos((qDist / 150) * Math.PI * 0.5);
-    return Math.max(-6, hill * (1 - qFactor * 0.7) - qFactor * 6);
+    return Math.max(-4, hill * (1 - qFactor * 0.7) - qFactor * 4);
   }
 
   // Flat airfield plateau around (-820, 760)
@@ -113,32 +118,29 @@ export function getTerrainHeight(x: number, z: number): number {
   }
 
   // Mountains at extreme North/West map edges
-  const mtnDist = Math.max(-x - 950, -z - 950);
+  const mtnDist = Math.max(-x - 980, -z - 980);
   if (mtnDist > 0) {
-    return hill + mtnDist * 0.32;
+    return hill + mtnDist * 0.28;
   }
 
   return Math.max(0, hill * 0.55);
 }
 
 /**
- * Hand-authored static map of Raxi City (§6.1–6.2).
+ * Hand-authored static map of Raxi City (§6.1–6.2) built on ONE unified HeightMap.
  */
 export function createMapDefinition(): MapDefinition {
+  const worldHalfSize = 1200;
+  const heightMap = new HeightMap(worldHalfSize, 160, getTerrainHeight);
+
   const nodes: RoadNode[] = [];
   const edges: Omit<RoadEdge, 'length'>[] = [];
   const nodeIds = new Set<string>();
 
-  const addNode = (
-    id: string,
-    x: number,
-    z: number,
-    hasTrafficLight = false,
-    yOverride?: number
-  ) => {
+  const addNode = (id: string, x: number, z: number, hasTrafficLight = false) => {
     if (nodeIds.has(id)) return;
     nodeIds.add(id);
-    const y = yOverride !== undefined ? yOverride : Math.max(0, getTerrainHeight(x, z));
+    const y = heightMap.sample(x, z);
     nodes.push({
       id,
       x,
@@ -186,7 +188,7 @@ export function createMapDefinition(): MapDefinition {
       const isAvenueX = ix % 2 === 1;
       const isAvenueZ = iz % 2 === 1;
       const hasLight = isAvenueX && isAvenueZ && Math.abs(x) <= 400 && Math.abs(z) <= 400;
-      addNode(gId(ix, iz), x, z, hasLight, 0);
+      addNode(gId(ix, iz), x, z, hasLight);
     }
   }
 
@@ -225,7 +227,7 @@ export function createMapDefinition(): MapDefinition {
   }
 
   // 2. Diagonal Boulevards & Park Shortcuts (for Local Knowledge #20!)
-  addNode('park_center', -100, -100, false, 0);
+  addNode('park_center', -100, -100, false);
   addEdge('g_3_3', 'park_center', 'shortcut', 1, 14, 8, { isShortcut: true });
   addEdge('park_center', 'g_5_5', 'shortcut', 1, 14, 8, { isShortcut: true });
   addEdge('g_5_3', 'park_center', 'shortcut', 1, 14, 8, { isShortcut: true });
@@ -239,25 +241,25 @@ export function createMapDefinition(): MapDefinition {
   // Diagonal coastal boulevard on SE docks
   addEdge('g_8_8', 'g_10_6', 'avenue', 2, 20, 16);
 
-  // 3. Ring Highway around the city core (±640) with on/off ramps (flat, no bridges)
-  const hwNodes: Array<[string, number, number, number]> = [
-    ['hw_nw', -640, -640, 0],
-    ['hw_n1', -300, -640, 0],
-    ['hw_n_over', 0, -640, 0],
-    ['hw_n2', 300, -640, 0],
-    ['hw_ne', 640, -640, 0],
-    ['hw_e1', 640, -200, 0],
-    ['hw_e2', 640, 200, 0],
-    ['hw_se', 640, 640, 0],
-    ['hw_s1', 200, 640, 0],
-    ['hw_s2', -200, 640, 0],
-    ['hw_sw', -640, 640, 0],
-    ['hw_w1', -640, 200, 0],
-    ['hw_w2', -640, -200, 0],
+  // 3. Ring Highway around the city core (±640) with on/off ramps (strictly on heightmap)
+  const hwNodes: Array<[string, number, number]> = [
+    ['hw_nw', -640, -640],
+    ['hw_n1', -300, -640],
+    ['hw_n_over', 0, -640],
+    ['hw_n2', 300, -640],
+    ['hw_ne', 640, -640],
+    ['hw_e1', 640, -200],
+    ['hw_e2', 640, 200],
+    ['hw_se', 640, 640],
+    ['hw_s1', 200, 640],
+    ['hw_s2', -200, 640],
+    ['hw_sw', -640, 640],
+    ['hw_w1', -640, 200],
+    ['hw_w2', -640, -200],
   ];
 
-  for (const [id, x, z, y] of hwNodes) {
-    addNode(id, x, z, false, y);
+  for (const [id, x, z] of hwNodes) {
+    addNode(id, x, z, false);
   }
   for (let i = 0; i < hwNodes.length; i++) {
     const a = hwNodes[i][0];
@@ -276,13 +278,13 @@ export function createMapDefinition(): MapDefinition {
   addEdge('hw_s2', 'g_3_10', 'highway', 1, 22, 12);
 
   // 4. Outskirts Country Roads connecting to Quarry, Lookout, Farm Market, Airfield, Lighthouse, Beach Club
-  addNode('out_quarry', -850, -760, false, 0);
-  addNode('out_lookout', -300, -900, false, 10);
-  addNode('out_farm', 300, -880, false, 4);
-  addNode('out_lighthouse', 820, -760, false, 1);
-  addNode('out_beach', 800, 520, false, 0.5);
-  addNode('out_airfield', -820, 760, false, 0);
-  addNode('out_gas', -860, 0, false, 2);
+  addNode('out_quarry', -850, -760, false);
+  addNode('out_lookout', -300, -900, false);
+  addNode('out_farm', 300, -880, false);
+  addNode('out_lighthouse', 820, -760, false);
+  addNode('out_beach', 800, 520, false);
+  addNode('out_airfield', -820, 760, false);
+  addNode('out_gas', -860, 0, false);
 
   addEdge('hw_nw', 'out_quarry', 'country', 1, 24, 11);
   addEdge('out_quarry', 'out_lookout', 'country', 1, 24, 11);
@@ -570,7 +572,7 @@ export function createMapDefinition(): MapDefinition {
     const nearest = graph.projectPoint(lm.curbX, lm.curbZ, 0, -1, 60);
     sidewalkSpots.push({
       x: lm.curbX,
-      y: nearest ? nearest.closestY : Math.max(0, getTerrainHeight(lm.curbX, lm.curbZ)),
+      y: heightMap.sample(lm.curbX, lm.curbZ),
       z: lm.curbZ,
       edgeId: nearest?.edge.id ?? graph.edges[0].id,
       district: lm.district,
@@ -602,7 +604,7 @@ export function createMapDefinition(): MapDefinition {
       const side = (i % 2 === 0 ? 1 : -1) * (t > 0.5 ? 1 : -1);
       const sx = a.x + dx * t + rx * offset * side;
       const sz = a.z + dz * t + rz * offset * side;
-      const sy = a.y + (b.y - a.y) * t;
+      const sy = heightMap.sample(sx, sz);
       // Avoid placing right inside a garage
       if (garages.some((g) => Math.hypot(g.x - sx, g.z - sz) < 24)) continue;
 
@@ -621,12 +623,13 @@ export function createMapDefinition(): MapDefinition {
 
   return {
     graph,
+    heightMap,
     landmarks,
     garages,
     ramps,
     sidewalkSpots,
     parkBounds: { minX: -195, maxX: -5, minZ: -195, maxZ: -5 },
-    worldHalfSize: 1200,
+    worldHalfSize,
     cityCoreHalfSize: 600,
   };
 }

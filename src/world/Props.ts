@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Rng } from '../core/Rng';
 import { CG, makeCollisionGroups } from '../physics/collisionGroups';
 import { PhysicsWorld, RAPIER } from '../physics/PhysicsWorld';
-import { MapDefinition, getDistrictAt, getTerrainHeight } from './mapData';
+import { MapDefinition, getDistrictAt } from './mapData';
 
 interface BreakableProp {
   id: number;
@@ -52,7 +52,7 @@ export class PropsManager {
       if (e.roadType === 'avenue' || e.roadType === 'street') {
         const lx = a.x + dx * 0.5 + rx * (e.width * 0.5 + 1.6);
         const lz = a.z + dz * 0.5 + rz * (e.width * 0.5 + 1.6);
-        lampPositions.push({ x: lx, y: (a.y + b.y) * 0.5, z: lz, yaw });
+        lampPositions.push({ x: lx, y: map.heightMap.sample(lx, lz), z: lz, yaw });
       }
     }
 
@@ -62,7 +62,7 @@ export class PropsManager {
       const z = rng.range(map.parkBounds.minZ + 10, map.parkBounds.maxZ - 10);
       const proj = map.graph.projectPoint(x, z, 0, -1, 10);
       if (proj && proj.distFromCenter < proj.halfWidth + 3) continue;
-      treePositions.push({ x, y: 0, z, scale: rng.range(0.85, 1.45), tint: rng.pick([0x3ca347, 0x2e8b40, 0x58b848]) });
+      treePositions.push({ x, y: map.heightMap.sample(x, z), z, scale: rng.range(0.85, 1.45), tint: rng.pick([0x3ca347, 0x2e8b40, 0x58b848]) });
     }
 
     // Residential & Outskirts trees
@@ -75,8 +75,7 @@ export class PropsManager {
       const proj = map.graph.projectPoint(x, z, 0, -1, 16);
       if (proj && proj.distFromCenter < proj.halfWidth + 6) continue;
       if (map.landmarks.some((l) => Math.hypot(l.x - x, l.z - z) < 50)) continue;
-      const y = getTerrainHeight(x, z);
-      if (y < 0.2) continue;
+      const y = map.heightMap.sample(x, z);
       treePositions.push({ x, y, z, scale: rng.range(0.9, 1.7), tint: rng.pick([0x3b8c3e, 0x4ca64a, 0x62a840]) });
     }
 

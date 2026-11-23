@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Rng } from '../core/Rng';
 import { CG } from '../physics/collisionGroups';
 import { PhysicsWorld } from '../physics/PhysicsWorld';
@@ -10,7 +9,6 @@ import {
   MapDefinition,
   RampDef,
   getDistrictAt,
-  getTerrainHeight,
 } from './mapData';
 import { PropsManager } from './Props';
 import { buildTerrain } from './Terrain';
@@ -48,15 +46,11 @@ export function buildCity(map: MapDefinition, physics: PhysicsWorld): CityBuildR
   const textures = createCityTextures();
   const rng = new Rng(20120420); // Fixed map seed -> identical city every run
 
-  // 1. Terrain & Ocean/River
+  // 1. Single unified Terrain HeightMap with all roads painted directly on it
   const { group: terrainGroup } = buildTerrain(map, physics);
   root.add(terrainGroup);
 
-  // 2. Roads + Intersections + Overpass + Bridge physics colliders
-  const roadGroup = buildRoads(map, textures, physics);
-  root.add(roadGroup);
-
-  // 3. ChunkBuilder for static buildings & landmarks
+  // 2. ChunkBuilder for static buildings & landmarks
   const chunkBuilder = new ChunkBuilder();
   chunkBuilder.registerMaterial(
     'buildings',
@@ -77,7 +71,7 @@ export function buildCity(map: MapDefinition, physics: PhysicsWorld): CityBuildR
 
   // 5. Build all 16 distinctive Landmarks
   for (const lm of map.landmarks) {
-    buildLandmark(lm, chunkBuilder, physics);
+    buildLandmark(lm, map, chunkBuilder, physics);
   }
 
   // 6. Build Industrial Shipping Containers in Docks
@@ -87,11 +81,11 @@ export function buildCity(map: MapDefinition, physics: PhysicsWorld): CityBuildR
   root.add(chunkRoot);
 
   // 7. Jump Ramps
-  const rampsGroup = buildRamps(map.ramps, textures, physics);
+  const rampsGroup = buildRamps(map.ramps, map, textures, physics);
   root.add(rampsGroup);
 
   // 8. 4 Raxi Garages with drivable bays & beams
-  const { group: garagesGroup, beams: garageBeams } = buildGarages(map.garages, physics);
+  const { group: garagesGroup, beams: garageBeams } = buildGarages(map.garages, map, physics);
   root.add(garagesGroup);
 
   // 9. Props (instanced trees, lamps + dynamic breakables)
@@ -115,8 +109,8 @@ export function buildCity(map: MapDefinition, physics: PhysicsWorld): CityBuildR
       const a = map.graph.getNode(edge.from)!;
       const b = map.graph.getNode(edge.to)!;
       const mx = (a.x + b.x) * 0.5;
-      const my = (a.y + b.y) * 0.5 + 0.7;
       const mz = (a.z + b.z) * 0.5;
+      const my = map.heightMap.sample(mx, mz) + 0.7;
       const yaw = Math.atan2(b.x - a.x, b.z - a.z);
       const mesh = new THREE.Mesh(barGeo, barMat);
       mesh.position.set(mx, my, mz);
@@ -137,142 +131,6 @@ export function buildCity(map: MapDefinition, physics: PhysicsWorld): CityBuildR
     },
     setRoadWorksVisible,
   };
-}
-
-function buildRoads(
-  map: MapDefinition,
-  textures: CityTextures,
-  physics: PhysicsWorld
-): THREE.Group {
-  const group = new THREE.Group();
-
-  const mat2 = new THREE.MeshLambertMaterial({
-    map: textures.asphalt2Lane,
-    polygonOffset: true,
-    polygonOffsetFactor: -2,
-    polygonOffsetUnits: -2,
-  });
-  const mat4 = new THREE.MeshLambertMaterial({
-    map: textures.asphalt4Lane,
-    polygonOffset: true,
-    polygonOffsetFactor: -2,
-    polygonOffsetUnits: -2,
-  });
-  const matShortcut = new THREE.MeshLambertMaterial({
-    map: textures.shortcutPath,
-    polygonOffset: true,
-    polygonOffsetFactor: -1,
-    polygonOffsetUnits: -1,
-  });
-  const matPatch = new THREE.MeshLambertMaterial({
-    color: 0x383d42,
-    polygonOffset: true,
-    polygonOffsetFactor: -3,
-    polygonOffsetUnits: -3,
-  });
-
-  // Bucket road strip geometries by material for merged low-draw-call rendering!
-  const geos2: THREE.BufferGeometry[] = [];
-  const geos4: THREE.BufferGeometry[] = [];
-  const geosShort: THREE.BufferGeometry[] = [];
-
-  // Collect vertices & indices for elevated roads/bridges/overpasses trimesh collider
-  const roadVerts: number[] = [];
-  const roadIndices: number[] = [];
-
-  const pushQuadCollider = (
-    p0: THREE.Vector3,
-    p1: THREE.Vector3,
-    p2: THREE.Vector3,
-    p3: THREE.Vector3
-  ) => {
-    const base = roadVerts.length / 3;
-    roadVerts.push(p0.x, p0.y, p0.z, p1.x, p1.y, p1.z, p2.x, p2.y, p2.z, p3.x, p3.y, p3.z);
-    roadIndices.push(base, base + 1, base + 2, base, base + 2, base + 3);
-  };
-
-  for (const e of map.graph.edges) {
-    const a = map.graph.getNode(e.from)!;
-    const b = map.graph.getNode(e.to)!;
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
-    const dz = b.z - a.z;
-    const horizLen = Math.hypot(dx, dz);
-    if (horizLen < 0.5) continue;
-
-    const fullLen = Math.hypot(dx, dy, dz);
-    const rx = (-dz / horizLen) * (e.width * 0.5);
-    const rz = (dx / horizLen) * (e.width * 0.5);
-
-    const yOff = e.isShortcut ? 0.08 : 0.12;
-    const p0 = new THREE.Vector3(a.x - rx, a.y + yOff, a.z - rz);
-    const p1 = new THREE.Vector3(a.x + rx, a.y + yOff, a.z + rz);
-    const p2 = new THREE.Vector3(b.x + rx, b.y + yOff, b.z + rz);
-    const p3 = new THREE.Vector3(b.x - rx, b.y + yOff, b.z - rz);
-
-    // CCW winding facing +Y (upward): (p0, p1, p2) and (p0, p2, p3)
-    const geo = new THREE.BufferGeometry();
-    const positions = new Float32Array([
-      p0.x, p0.y, p0.z,
-      p1.x, p1.y, p1.z,
-      p2.x, p2.y, p2.z,
-      p3.x, p3.y, p3.z,
-    ]);
-    const repeatT = Math.max(1, fullLen / 18);
-    const uvs = new Float32Array([0, 0, 1, 0, 1, repeatT, 0, repeatT]);
-    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
-    geo.setIndex([0, 1, 2, 0, 2, 3]);
-    geo.computeVertexNormals();
-
-    if (e.isShortcut) geosShort.push(geo);
-    else if (e.lanesPerDir >= 2) geos4.push(geo);
-    else geos2.push(geo);
-
-    // Add crisp physics road surface for ALL road strips (only ~440 tris total) so wheels ride flush with asphalt!
-    pushQuadCollider(p0, p1, p2, p3);
-  }
-
-  const addMergedRoad = (geos: THREE.BufferGeometry[], mat: THREE.Material) => {
-    if (geos.length === 0) return;
-    const merged = mergeGeometries(geos, false);
-    for (const g of geos) g.dispose();
-    if (!merged) return;
-    const mesh = new THREE.Mesh(merged, mat);
-    mesh.receiveShadow = true;
-    group.add(mesh);
-  };
-
-  addMergedRoad(geos2, mat2);
-  addMergedRoad(geos4, mat4);
-  addMergedRoad(geosShort, matShortcut);
-
-  // Intersection square patches so road crossings look seamless
-  const patchGeo = new THREE.PlaneGeometry(16.8, 16.8);
-  patchGeo.rotateX(-Math.PI * 0.5);
-  const patchNodes = Array.from(map.graph.nodes.values()).filter((n) => n.y < 0.2);
-  const patches = new THREE.InstancedMesh(patchGeo, matPatch, patchNodes.length);
-  patches.receiveShadow = true;
-  const dummy = new THREE.Object3D();
-  for (let i = 0; i < patchNodes.length; i++) {
-    const n = patchNodes[i];
-    dummy.position.set(n.x, n.y + 0.13, n.z);
-    dummy.rotation.set(0, 0, 0);
-    dummy.updateMatrix();
-    patches.setMatrixAt(i, dummy.matrix);
-  }
-  group.add(patches);
-
-  if (roadVerts.length > 0) {
-    physics.createStaticTrimesh(
-      new Float32Array(roadVerts),
-      new Uint32Array(roadIndices),
-      { kind: 'ground' },
-      CG.GROUND
-    );
-  }
-
-  return group;
 }
 
 function buildDistrictBuildings(
@@ -412,8 +270,13 @@ function buildDocksContainers(
   }
 }
 
-function buildLandmark(lm: LandmarkDef, chunks: ChunkBuilder, physics: PhysicsWorld): void {
-  const baseY = Math.max(0, getTerrainHeight(lm.x, lm.z));
+function buildLandmark(
+  lm: LandmarkDef,
+  map: MapDefinition,
+  chunks: ChunkBuilder,
+  physics: PhysicsWorld
+): void {
+  const baseY = map.heightMap.sample(lm.x, lm.z);
   const addBox = (
     ox: number,
     oy: number,
@@ -479,6 +342,7 @@ function buildLandmark(lm: LandmarkDef, chunks: ChunkBuilder, physics: PhysicsWo
 
 function buildRamps(
   ramps: RampDef[],
+  map: MapDefinition,
   textures: CityTextures,
   physics: PhysicsWorld
 ): THREE.Group {
@@ -486,7 +350,7 @@ function buildRamps(
   const mat = new THREE.MeshLambertMaterial({ map: textures.rampStripes });
 
   for (const r of ramps) {
-    const baseY = Math.max(0, getTerrainHeight(r.x, r.z));
+    const baseY = map.heightMap.sample(r.x, r.z);
     const hw = r.width * 0.5;
     const hl = r.length * 0.5;
     const h = r.height;
@@ -539,7 +403,7 @@ function buildRamps(
       worldVerts[i + 1] = v.y + baseY;
       worldVerts[i + 2] = v.z + r.z;
     }
-    physics.createStaticTrimesh(worldVerts, indices, { kind: 'ground' }, CG.GROUND);
+    physics.createStaticTrimesh(worldVerts, indices, { kind: 'ground' }, CG.STATIC_WORLD);
   }
 
   return group;
@@ -547,6 +411,7 @@ function buildRamps(
 
 function buildGarages(
   garages: GarageDef[],
+  map: MapDefinition,
   physics: PhysicsWorld
 ): { group: THREE.Group; beams: THREE.Mesh[] } {
   const group = new THREE.Group();
@@ -564,7 +429,7 @@ function buildGarages(
   });
 
   for (const g of garages) {
-    const baseY = Math.max(0, getTerrainHeight(g.x, g.z));
+    const baseY = map.heightMap.sample(g.x, g.z);
     const gGroup = new THREE.Group();
     gGroup.position.set(g.x, baseY, g.z);
     gGroup.rotation.y = g.yaw;

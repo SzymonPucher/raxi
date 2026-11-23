@@ -75,7 +75,7 @@ export class ChaseCamera {
       desiredDir.negate();
     }
 
-    this.smoothedDir.lerp(desiredDir, Math.min(1, dt * 6.5)).normalize();
+    this.smoothedDir.lerp(desiredDir, 1 - Math.exp(-7.5 * dt)).normalize();
 
     const activeDir = lookBack ? this.tmpFwd.clone().negate() : this.smoothedDir;
 
@@ -108,7 +108,7 @@ export class ChaseCamera {
     if (lookBack) {
       this.currentPos.copy(idealPos);
     } else {
-      this.currentPos.lerp(idealPos, Math.min(1, dt * 11.5));
+      this.currentPos.lerp(idealPos, 1 - Math.exp(-13.5 * dt));
     }
 
     // Look ahead of car along velocity
@@ -120,7 +120,7 @@ export class ChaseCamera {
     if (lookBack) {
       this.currentLook.copy(lookTarget);
     } else {
-      this.currentLook.lerp(lookTarget, Math.min(1, dt * 14));
+      this.currentLook.lerp(lookTarget, 1 - Math.exp(-16 * dt));
     }
 
     // Camera shake

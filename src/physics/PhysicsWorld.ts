@@ -113,8 +113,8 @@ export class PhysicsWorld {
     const body = this.world.createRigidBody(bodyDesc);
     const colDesc = RAPIER.ColliderDesc.cuboid(hx, hy, hz)
       .setCollisionGroups(makeCollisionGroups(group, CG.PLAYER | CG.TRAFFIC | CG.PROPS_BREAKABLE))
-      .setFriction(0.6)
-      .setRestitution(0.05);
+      .setFriction(0.5)
+      .setRestitution(0.0);
     const col = this.world.createCollider(colDesc, body);
     this.registerTag(col, tag);
     return col;

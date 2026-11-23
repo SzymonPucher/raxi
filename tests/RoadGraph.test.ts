@@ -38,12 +38,19 @@ describe('RoadGraph & MapDefinition', () => {
   });
 
   it('projects positions onto road edges and detects oncoming lane', () => {
-    // Edge from g_5_5 (0,0) to g_5_6 (0,100): dir=(0,1), right=(-1,0)
-    // Right lane has signedLateral > 0 => x < 0, traveling +Z (headingZ=1) is legal; headingZ=-1 is oncoming
     const legal = graph.projectPoint(-3.5, 50, 0, 1);
     const oncoming = graph.projectPoint(-3.5, 50, 0, -1);
     expect(legal).not.toBeNull();
     expect(legal!.isOncoming).toBe(false);
     expect(oncoming!.isOncoming).toBe(true);
+  });
+
+  it('places every road node and sidewalk spot strictly on the unified HeightMap', () => {
+    for (const node of graph.nodes.values()) {
+      expect(node.y).toBeCloseTo(map.heightMap.sample(node.x, node.z), 5);
+    }
+    for (const spot of map.sidewalkSpots) {
+      expect(spot.y).toBeCloseTo(map.heightMap.sample(spot.x, spot.z), 5);
+    }
   });
 });

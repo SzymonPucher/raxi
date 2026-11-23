@@ -9,6 +9,7 @@ import {
   makeCollisionGroups,
 } from '../physics/collisionGroups';
 import { PhysicsWorld, RAPIER } from '../physics/PhysicsWorld';
+import { HeightMap } from '../world/HeightMap';
 import { DriftDetector, DriftEventsOut } from './DriftDetector';
 import { VehicleStats } from './VehicleStats';
 
@@ -81,10 +82,13 @@ export class ArcadeVehicle {
   public visualPitch = 0;
   private prevForwardSpeed = 0;
   private currentMass = 1200;
+  private readonly preStepVel = new THREE.Vector3();
+  private hopGraceTimer = 0;
 
   constructor(
     private readonly physics: PhysicsWorld,
     public readonly vehicleStats: VehicleStats,
+    private readonly heightMap: HeightMap,
     spawnPos = new THREE.Vector3(0, 1.5, 0),
     spawnYaw = 0
   ) {
@@ -107,7 +111,7 @@ export class ArcadeVehicle {
       .setTranslation(0, -cfg.comOffsetY * 0.65, 0)
       .setMass(cfg.mass)
       .setFriction(0.15)
-      .setRestitution(0.05)
+      .setRestitution(0.0)
       .setActiveEvents(RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS)
       .setCollisionGroups(makeCollisionGroups(CG.PLAYER, PLAYER_NORMAL_FILTER));
 
@@ -190,7 +194,76 @@ export class ArcadeVehicle {
     const g = 9.81 * this.vehicleStats.config.airGravityMult;
     const vy = Math.sqrt(2 * g * heightMeters);
     const vel = this.body.linvel();
+    this.hopGraceTimer = 0.25;
     this.body.setLinvel({ x: vel.x, y: Math.max(vel.y, vy), z: vel.z }, true);
+  }
+
+  /** Capture velocity right before Rapier steps so collision catapult spikes can be clamped. */
+  capturePreStepVelocity(): void {
+    const v = this.body.linvel();
+    this.preStepVel.set(v.x, v.y, v.z);
+  }
+
+  /**
+   * Prevents Rapier depenetration or high-speed glancing impacts from catapulting the taxi
+   * sky-high or flinging it far across the map.
+   */
+  clampPostStepVelocity(): void {
+    const v = this.body.linvel();
+    const eff = this.vehicleStats.getEffective(this.isBoosting);
+
+    const preHoriz = Math.hypot(this.preStepVel.x, this.preStepVel.z);
+    let vx = v.x;
+    let vy = v.y;
+    let vz = v.z;
+    let changed = false;
+
+    // 1. Cap abnormal single-step horizontal velocity jump (depenetration catapult)
+    const dvx = vx - this.preStepVel.x;
+    const dvz = vz - this.preStepVel.z;
+    const dvHoriz = Math.hypot(dvx, dvz);
+    const maxSingleStepDelta = 20.0;
+    if (dvHoriz > maxSingleStepDelta) {
+      const s = maxSingleStepDelta / dvHoriz;
+      vx = this.preStepVel.x + dvx * s;
+      vz = this.preStepVel.z + dvz * s;
+      changed = true;
+    }
+
+    // 2. A collision must never fling the car faster than its pre-impact speed (or topSpeed)
+    const postHoriz = Math.hypot(vx, vz);
+    const maxAllowedHoriz = Math.min(eff.topSpeed * 1.25, Math.max(preHoriz + 2.5, 16.0));
+    if (postHoriz > maxAllowedHoriz && postHoriz > 0.001) {
+      const s = maxAllowedHoriz / postHoriz;
+      vx *= s;
+      vz *= s;
+      changed = true;
+    }
+
+    // 3. Cap sudden upward vertical launch from collisions (while still permitting ramp jumps & Hydraulics)
+    if (this.hopGraceTimer <= 0) {
+      const maxUpVel = Math.min(14.5, Math.max(this.preStepVel.y + 3.0, 4.2));
+      if (vy > maxUpVel) {
+        vy = maxUpVel;
+        changed = true;
+      }
+    } else if (vy > 16.5) {
+      vy = 16.5;
+      changed = true;
+    }
+
+    if (changed) {
+      this.body.setLinvel({ x: vx, y: vy, z: vz }, true);
+    }
+
+    // 4. Clamp post-collision spin immediately
+    const ang = this.body.angvel();
+    const maxAng = this.vehicleStats.config.maxCollisionAngVel;
+    const angMag = Math.hypot(ang.x, ang.y, ang.z);
+    if (angMag > maxAng) {
+      const s = maxAng / angMag;
+      this.body.setAngvel({ x: ang.x * s, y: ang.y * s, z: ang.z * s }, true);
+    }
   }
 
   /** Explosion knockback (§7.2: upward kick ~2 m/s, -15% forward speed, never flips). */
@@ -275,6 +348,7 @@ export class ArcadeVehicle {
     }
 
     // Blinker auto-cancel timer
+    if (this.hopGraceTimer > 0) this.hopGraceTimer = Math.max(0, this.hopGraceTimer - dt);
     if (this.blinker !== 'off') {
       this.blinkerOnTime += dt;
       if (this.blinkerOnTime >= BALANCE.ruleBlinkerAutoCancelTime) {
@@ -318,7 +392,7 @@ export class ArcadeVehicle {
     const steerStep = cfg.steerSpeed * dt;
     this.steerAngle = THREE.MathUtils.lerp(this.steerAngle, targetSteerRad, Math.min(1, steerStep));
 
-    // Raycast per wheel
+    // Per-wheel contact (analytic HeightMap ground + Rapier raycast for ramps/structures)
     const rayLen = cfg.suspensionRestLength + cfg.wheelRadius;
     const downDir = _v1.copy(this.upDir).negate();
     let groundedCount = 0;
@@ -339,30 +413,60 @@ export class ArcadeVehicle {
         .applyQuaternion(this.currQuaternion)
         .add(this.currPosition);
 
-      const hit = this.physics.castRay(
+      // 1. Exact analytic HeightMap ground contact (100% seam-free, zero trimesh edge glitches!)
+      let hitToi = Infinity;
+      let hitNormalX = 0;
+      let hitNormalY = 1;
+      let hitNormalZ = 0;
+
+      if (downDir.y < -0.25) {
+        const groundY = this.heightMap.sample(mountWorld.x, mountWorld.z);
+        const toiGround = (mountWorld.y - groundY) / -downDir.y;
+        if (toiGround >= 0 && toiGround <= rayLen) {
+          hitToi = toiGround;
+          const n = this.heightMap.sampleNormal(mountWorld.x, mountWorld.z);
+          hitNormalX = n.x;
+          hitNormalY = n.y;
+          hitNormalZ = n.z;
+        }
+      }
+
+      // 2. Also raycast against elevated structures / jump ramps (CG.STATIC_WORLD)
+      const rampHit = this.physics.castRay(
         { x: mountWorld.x, y: mountWorld.y, z: mountWorld.z },
         { x: downDir.x, y: downDir.y, z: downDir.z },
-        rayLen,
+        Math.min(rayLen, hitToi),
         WORLD_WHEEL_RAY_FILTER,
         this.body
       );
+      if (rampHit && rampHit.toi < hitToi && rampHit.normal.y > 0.35) {
+        hitToi = rampHit.toi;
+        hitNormalX = rampHit.normal.x;
+        hitNormalY = rampHit.normal.y;
+        hitNormalZ = rampHit.normal.z;
+      }
 
-      if (hit && hit.toi <= rayLen) {
+      if (hitToi <= rayLen) {
         w.grounded = true;
         groundedCount++;
         if (w.isLeft) leftGrounded++;
         else rightGrounded++;
 
-        const dist = Math.max(0.05, hit.toi - cfg.wheelRadius);
+        const dist = Math.max(0.05, hitToi - cfg.wheelRadius);
         const compression = Math.max(0, Math.min(cfg.suspensionRestLength, cfg.suspensionRestLength - dist));
         w.compression = compression;
         comps[i] = compression;
 
-        w.contactPoint.copy(mountWorld).addScaledVector(downDir, hit.toi);
-        w.contactNormal.set(hit.normal.x, hit.normal.y, hit.normal.z);
+        w.contactPoint.copy(mountWorld).addScaledVector(downDir, hitToi);
+        w.contactNormal.set(hitNormalX, hitNormalY, hitNormalZ);
 
-        // 1. Suspension spring + damper force
-        const compVel = (compression - w.prevCompression) / dt;
+        // Velocity at mount point = v + omega x r (smooth velocity-based damper, zero finite-diff chatter!)
+        const rMount = new THREE.Vector3().subVectors(mountWorld, this.currPosition);
+        const omega = new THREE.Vector3(ang.x, ang.y, ang.z);
+        const mountVel = new THREE.Vector3().copy(this.velocity).add(omega.clone().cross(rMount));
+
+        // 1. Suspension spring + velocity damper force
+        const compVel = -mountVel.dot(this.upDir);
         const springF = Math.max(
           0,
           Math.min(
@@ -387,7 +491,6 @@ export class ArcadeVehicle {
 
         // Velocity at contact point = v + omega x r
         const rVec = new THREE.Vector3().subVectors(w.contactPoint, this.currPosition);
-        const omega = new THREE.Vector3(ang.x, ang.y, ang.z);
         const ptVel = new THREE.Vector3().copy(this.velocity).add(omega.cross(rVec));
 
         const wheelFwdVel = ptVel.dot(wheelFwd);

@@ -481,6 +481,7 @@ export class PedestriansManager {
         p.z += p.walkDirZ * p.walkSpeed * dt;
         p.walkPhase += dt * p.walkSpeed * 4.2;
       }
+      p.y = this.map.heightMap.sample(p.x, p.z);
 
       // Player overlap -> cartoon explosion!
       if (!player.isGhost && Math.abs(py - p.y) < 2.2) {
@@ -560,8 +561,8 @@ export class PedestriansManager {
 
       p.active = true;
       p.x = s.x + rng.range(-2.5, 2.5);
-      p.y = s.y;
       p.z = s.z + rng.range(-2.5, 2.5);
+      p.y = this.map.heightMap.sample(p.x, p.z);
       p.walkDirX = dirX;
       p.walkDirZ = dirZ;
       p.walkSpeed = rng.range(1.2, 2.1);

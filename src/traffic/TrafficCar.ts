@@ -303,7 +303,7 @@ export class TrafficCar {
     )
       .setMass(this.spec.mass)
       .setFriction(0.5)
-      .setRestitution(0.2)
+      .setRestitution(0.02)
       .setActiveEvents(RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS)
       .setCollisionGroups(
         makeCollisionGroups(CG.TRAFFIC, CG.PLAYER | CG.GROUND | CG.STATIC_WORLD | CG.TRAFFIC | CG.PROPS_BREAKABLE)
@@ -361,18 +361,34 @@ export class TrafficCar {
     this.mesh.visible = true;
   }
 
-  setKinematicPose(x: number, y: number, z: number, yaw: number): void {
+  setKinematicPose(x: number, y: number, z: number, yaw: number, pitch = 0): void {
     this.x = x;
     this.y = y;
     this.z = z;
     this.yaw = yaw;
     this.dirX = -Math.sin(yaw);
     this.dirZ = -Math.cos(yaw);
-    const half = yaw * 0.5;
+    const euler = new THREE.Euler(pitch, yaw, 0, 'YXZ');
+    const q = new THREE.Quaternion().setFromEuler(euler);
     this.body.setNextKinematicTranslation({ x, y, z });
-    this.body.setNextKinematicRotation({ x: 0, y: Math.sin(half), z: 0, w: Math.cos(half) });
+    this.body.setNextKinematicRotation({ x: q.x, y: q.y, z: q.z, w: q.w });
     this.mesh.position.set(x, y, z);
-    this.mesh.rotation.set(0, yaw, 0);
+    this.mesh.quaternion.copy(q);
+  }
+
+  /**
+   * Switches a kinematic traffic car to dynamic physics right before imminent player impact
+   * so Rapier solves a finite-mass dynamic collision instead of an infinite-mass kinematic catapult.
+   */
+  wakeDynamicForCollision(): void {
+    if (!this.active || this.knocked) return;
+    this.knocked = true;
+    this.knockedTimer = 0;
+    this.turn = null;
+    this.body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
+    this.body.setLinearDamping(0.35);
+    this.body.setAngularDamping(0.45);
+    this.body.setLinvel({ x: this.dirX * this.speed, y: 0, z: this.dirZ * this.speed }, true);
   }
 
   /** Switch to dynamic physics ("knocked" state §7.1) and apply dramatic launch velocity. */
