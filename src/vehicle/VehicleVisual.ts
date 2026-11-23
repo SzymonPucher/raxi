@@ -39,7 +39,7 @@ function createTaxiSignTexture(): THREE.CanvasTexture {
   ctx.font = '900 34px sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('RAXI', 80, 29);
+  ctx.fillText('TAXI', 80, 29);
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
@@ -244,7 +244,7 @@ export class VehicleVisual {
       this.bodyTiltGroup.add(h1, h2);
     }
 
-    // 3. Glowing beveled roof RAXI light sign
+    // 3. Glowing beveled roof TAXI light sign
     const signBase = new THREE.Mesh(new THREE.BoxGeometry(0.84, 0.07, 0.34), trimMat);
     signBase.position.set(0, 1.06, 0.12);
     const signMesh = new THREE.Mesh(
