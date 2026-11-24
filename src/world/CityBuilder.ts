@@ -2126,6 +2126,33 @@ function buildRamps(
   return group;
 }
 
+export const GARAGE_SIGN_TEXT = 'TANI ARMANI';
+
+function createGarageSignTexture(): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 96;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  ctx.fillStyle = '#11161d';
+  ctx.fillRect(0, 0, 512, 96);
+  ctx.strokeStyle = '#ffc400';
+  ctx.lineWidth = 6;
+  ctx.strokeRect(4, 4, 504, 88);
+
+  ctx.fillStyle = '#ffc400';
+  ctx.font = '900 54px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(GARAGE_SIGN_TEXT, 256, 50);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 function buildGarages(
   garages: GarageDef[],
   map: MapDefinition,
@@ -2137,6 +2164,12 @@ function buildGarages(
 
   const wallMat = new THREE.MeshLambertMaterial({ color: 0x37474f });
   const roofMat = new THREE.MeshLambertMaterial({ color: 0xffc400 });
+  const signTex = createGarageSignTexture();
+  const signMat = signTex
+    ? new THREE.MeshBasicMaterial({ map: signTex })
+    : new THREE.MeshBasicMaterial({ color: 0x11161d });
+  const signFrontBackGeo = new THREE.PlaneGeometry(13.8, 1.5);
+  const signSideGeo = new THREE.PlaneGeometry(11.6, 1.5);
   const padMat = new THREE.MeshBasicMaterial({ color: 0x00e676, transparent: true, opacity: 0.45 });
   const beamMat = new THREE.MeshBasicMaterial({
     color: 0x00e5ff,
@@ -2169,6 +2202,26 @@ function buildGarages(
     const roof = new THREE.Mesh(new THREE.BoxGeometry(15, 1.3, 12.5), roofMat);
     roof.position.set(0, 6.1, 0);
     gGroup.add(roof);
+
+    // "TANI ARMANI" signs on all 4 sides of the garage roof fascia
+    const frontSign = new THREE.Mesh(signFrontBackGeo, signMat);
+    frontSign.position.set(0, 6.12, 6.28);
+    gGroup.add(frontSign);
+
+    const backSign = new THREE.Mesh(signFrontBackGeo, signMat);
+    backSign.position.set(0, 6.12, -6.28);
+    backSign.rotation.y = Math.PI;
+    gGroup.add(backSign);
+
+    const leftSign = new THREE.Mesh(signSideGeo, signMat);
+    leftSign.position.set(-7.53, 6.12, 0);
+    leftSign.rotation.y = -Math.PI * 0.5;
+    gGroup.add(leftSign);
+
+    const rightSign = new THREE.Mesh(signSideGeo, signMat);
+    rightSign.position.set(7.53, 6.12, 0);
+    rightSign.rotation.y = Math.PI * 0.5;
+    gGroup.add(rightSign);
 
     // Glowing floor pad
     const pad = new THREE.Mesh(new THREE.RingGeometry(4.2, 5.8, 24), padMat);
