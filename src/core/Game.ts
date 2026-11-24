@@ -1575,6 +1575,7 @@ export class Game {
     this.currentGarageName = garageName;
     this.pendingShopReplaceOfferId = null;
     this.pendingShopReplacePower = null;
+    this.shop.rollSpecialPrice(this.rng);
     this.audio.playPickupChime();
     this.events.emit('shop:open', { garageName });
     this.setState('Shop');

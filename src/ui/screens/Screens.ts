@@ -442,7 +442,8 @@ export function renderShopScreen(
 
   const offersHtml = stock.offers
     .map((o) => {
-      const disabled = o.purchased || !wallet.canAfford(o.price) || powerManager.isMaxed(o.power.id);
+      const price = shop.getEffectiveOfferPrice(o);
+      const disabled = o.purchased || !wallet.canAfford(price) || powerManager.isMaxed(o.power.id);
       const preview = formatStatPreview(o.power, powerManager);
       const bmBadge = o.isBlackMarket ? '🕶️ BLACK MARKET • ' : '';
       return `
@@ -452,8 +453,8 @@ export function renderShopScreen(
           <div class="power-card-name">${o.power.name}</div>
           <div class="power-card-desc">${o.power.description}</div>
           ${preview}
-          <div style="font-family:var(--font-display);font-size:20px;color:${o.purchased ? '#888' : '#00e676'};margin-top:4px">
-            ${o.purchased ? 'SOLD' : `$${o.price}`}
+          <div style="font-family:var(--font-display);font-size:20px;color:${o.purchased ? '#888' : shop.specialPriceActive ? '#ff9100' : '#00e676'};margin-top:4px">
+            ${o.purchased ? 'SOLD' : `$${price}`}
           </div>
         </button>
       `;
@@ -472,6 +473,16 @@ export function renderShopScreen(
     .map((o) => `${o.def.icon} ${o.def.name}${o.stacks > 1 ? ` ×${o.stacks}` : ''}${o.cleansed ? ' (Cleansed)' : ''}`)
     .join(' • ');
 
+  const specialPriceBanner = shop.specialPriceActive
+    ? `<div style="margin:10px 0 6px;padding:10px 14px;border-radius:10px;background:rgba(255,145,0,0.16);border:2px solid #ff9100;display:flex;align-items:center;gap:12px">
+        <div style="font-size:28px;line-height:1">👃</div>
+        <div>
+          <div style="font-weight:900;color:#ffb74d;font-size:14px">Znajomy właściciel z dużym nosem: „Special price for you my friend!”</div>
+          <div style="font-size:12px;color:#ffe0b2">+50% na wszystko w tym garażu</div>
+        </div>
+      </div>`
+    : '';
+
   container.innerHTML = `
     <div class="screen-panel">
       <div class="shop-header">
@@ -485,6 +496,7 @@ export function renderShopScreen(
         </div>
       </div>
       <div class="raxi-checker"></div>
+      ${specialPriceBanner}
 
       <div class="shop-section-title">POWER OFFERS</div>
       <div class="draft-grid">${offersHtml}</div>

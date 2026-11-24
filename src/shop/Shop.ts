@@ -1,3 +1,4 @@
+import { Rng } from '../core/Rng';
 import { CarCondition } from '../gameplay/CarCondition';
 import { Wallet } from '../gameplay/Wallet';
 import { PowerManager } from '../powers/PowerManager';
@@ -5,6 +6,9 @@ import { PowerRegistry, defaultPowerRegistry } from '../powers/PowerRegistry';
 import { PowerCtx } from '../powers/PowerTypes';
 import { computeCleansePrice, computeRepairPrice, computeRerollPrice } from './Pricing';
 import { ShopPowerOffer, ShopStockData, generateShopStock } from './ShopStock';
+
+export const SHOP_SPECIAL_PRICE_CHANCE = 1 / 3;
+export const SHOP_SPECIAL_PRICE_MULT = 1.5;
 
 export interface PurchaseResult {
   ok: boolean;
@@ -23,6 +27,7 @@ export class Shop {
   private stock: ShopStockData | null = null;
   private rerollsUsedForDelivery = 0;
   private lastDeliveryCount = -1;
+  public specialPriceActive = false;
 
   constructor(private readonly registry: PowerRegistry = defaultPowerRegistry) {}
 
@@ -30,6 +35,24 @@ export class Shop {
     this.stock = null;
     this.rerollsUsedForDelivery = 0;
     this.lastDeliveryCount = -1;
+    this.specialPriceActive = false;
+  }
+
+  /**
+   * On garage entry, 33% chance to meet the familiar big-nosed owner offering
+   * "special price for you my friend" (+50% on everything in this visit).
+   */
+  rollSpecialPrice(rng: Rng): boolean {
+    this.specialPriceActive = rng.chance(SHOP_SPECIAL_PRICE_CHANCE);
+    return this.specialPriceActive;
+  }
+
+  get priceMult(): number {
+    return this.specialPriceActive ? SHOP_SPECIAL_PRICE_MULT : 1.0;
+  }
+
+  getEffectiveOfferPrice(offer: ShopPowerOffer): number {
+    return Math.round(offer.price * this.priceMult);
   }
 
   getStock(params: {
@@ -54,16 +77,22 @@ export class Shop {
   }
 
   getRerollCost(powerManager: PowerManager): number {
-    return computeRerollPrice(this.rerollsUsedForDelivery, powerManager.stats.get('shop.priceMult'));
+    const base = computeRerollPrice(
+      this.rerollsUsedForDelivery,
+      powerManager.stats.get('shop.priceMult')
+    );
+    return Math.max(10, Math.round(base * this.priceMult));
   }
 
   getRepairCost(condition: CarCondition, amountPct: number, powerManager: PowerManager): number {
     const actualPct = Math.min(condition.missing, Math.max(0, amountPct));
-    return computeRepairPrice(actualPct, powerManager.stats.get('shop.repairMult'));
+    const base = computeRepairPrice(actualPct, powerManager.stats.get('shop.repairMult'));
+    return base <= 0 ? 0 : Math.max(1, Math.round(base * this.priceMult));
   }
 
   getCleanseCost(tier: number, powerManager: PowerManager): number {
-    return computeCleansePrice(tier, powerManager.stats.get('shop.priceMult'));
+    const base = computeCleansePrice(tier, powerManager.stats.get('shop.priceMult'));
+    return Math.max(25, Math.round(base * this.priceMult));
   }
 
   buyOffer(params: {
@@ -82,16 +111,17 @@ export class Shop {
     if (params.powerManager.isMaxed(offer.power.id)) {
       return { ok: false, cost: 0, error: 'Power already maxed' };
     }
-    if (!params.wallet.canAfford(offer.price)) {
-      return { ok: false, cost: offer.price, error: 'Not enough cash' };
+    const price = this.getEffectiveOfferPrice(offer);
+    if (!params.wallet.canAfford(price)) {
+      return { ok: false, cost: price, error: 'Not enough cash' };
     }
 
     const res = params.powerManager.acquire(offer.power.id, params.ctx, params.replaceSlotIndex);
     if (!res.ok) return { ok: false, cost: 0, error: res.error };
 
-    params.wallet.spend(offer.price);
+    params.wallet.spend(price);
     offer.purchased = true;
-    return { ok: true, cost: offer.price, label: offer.power.name };
+    return { ok: true, cost: price, label: offer.power.name };
   }
 
   buyRepair(params: {
