@@ -5,6 +5,9 @@ import { WaitingPassenger } from '../gameplay/PassengerSpawner';
 import { PassengerTypeId, getTripColorHex } from '../gameplay/Passenger';
 import { ArcadeVehicle } from '../vehicle/ArcadeVehicle';
 import { MapDefinition, SidewalkSpot } from '../world/mapData';
+import { OneWheelManager, OneWheelRiderSnapshot, OneWheelVariant } from './OneWheelRider';
+
+export type { OneWheelRiderSnapshot, OneWheelVariant };
 
 interface Pedestrian {
   id: number;
@@ -43,9 +46,31 @@ interface PedHotspot {
   spots: SidewalkSpot[];
 }
 
+export interface PedExplosionEvent {
+  x: number;
+  y: number;
+  z: number;
+  isChain: boolean;
+  wasPassenger: boolean;
+  passengerId?: string;
+  bonusTimeSeconds?: number;
+  oneWheelVariant?: OneWheelVariant;
+}
+
 export interface PedImpactResult {
-  explosions: Array<{ x: number; y: number; z: number; isChain: boolean; wasPassenger: boolean; passengerId?: string }>;
+  explosions: PedExplosionEvent[];
   scares: number[];
+}
+
+export interface PedestrianSnapshot {
+  id: number;
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vz: number;
+  diving: boolean;
+  diveTimer: number;
 }
 
 /**
@@ -202,8 +227,10 @@ export class PedestriansManager {
     { group: THREE.Group; ring: THREE.Mesh; beacon: THREE.Mesh; waveArm: THREE.Group }
   >();
   private readonly destBeams: THREE.Group[] = [];
+  private readonly oneWheel: OneWheelManager;
 
   constructor(private readonly map: MapDefinition) {
+    this.oneWheel = new OneWheelManager(map);
     const count = BALANCE.pedMaxCount;
 
     // Sculpted human proportions (GTA SA silhouette)
@@ -302,7 +329,8 @@ export class PedestriansManager {
       this.leftLegInst,
       this.rightLegInst,
       this.leftArmInst,
-      this.rightArmInst
+      this.rightArmInst,
+      this.oneWheel.group
     );
 
     // Pre-create 2 destination light beams
@@ -520,6 +548,30 @@ export class PedestriansManager {
     }
     this.passengerVisuals.clear();
     for (const b of this.destBeams) b.visible = false;
+    this.oneWheel.reset();
+  }
+
+  getActivePedestrians(): PedestrianSnapshot[] {
+    const active: PedestrianSnapshot[] = [];
+    for (let i = 0; i < this.peds.length; i++) {
+      const p = this.peds[i];
+      if (!p.active) continue;
+      active.push({
+        id: p.id,
+        x: p.x,
+        y: p.y,
+        z: p.z,
+        vx: p.vx,
+        vz: p.vz,
+        diving: p.diving,
+        diveTimer: p.diveTimer,
+      });
+    }
+    return active;
+  }
+
+  getActiveOneWheelRiders(): OneWheelRiderSnapshot[] {
+    return this.oneWheel.getActiveRiders();
   }
 
   update(
@@ -528,7 +580,8 @@ export class PedestriansManager {
     waitingPassengers: WaitingPassenger[],
     activeDestinations: Array<{ x: number; y: number; z: number }>,
     rng: Rng,
-    timeSec: number
+    timeSec: number,
+    allowSpecialSpawn = true
   ): PedImpactResult {
     const out: PedImpactResult = { explosions: [], scares: [] };
     const px = player.currPosition.x;
@@ -617,9 +670,9 @@ export class PedestriansManager {
           const cross = fwdX * dz - fwdZ * dx;
           const sideSign = cross >= 0 ? 1 : -1;
           p.diving = true;
-          p.diveTimer = 0.65;
-          p.vx = -fwdZ * sideSign * 5.2;
-          p.vz = fwdX * sideSign * 5.2;
+          p.diveTimer = BALANCE.pedDiveDuration;
+          p.vx = -fwdZ * sideSign * BALANCE.pedDiveSpeed;
+          p.vz = fwdX * sideSign * BALANCE.pedDiveSpeed;
         }
       }
 
@@ -671,6 +724,21 @@ export class PedestriansManager {
 
     if (anyMatrixChanged) {
       this.markAllDirty();
+    }
+
+    // Special OneWheel bonus riders (+10s time bonus every 3 minutes)
+    const oneWheelHits = this.oneWheel.update(dt, player, rng, timeSec, allowSpecialSpawn);
+    for (const hit of oneWheelHits) {
+      out.explosions.push({
+        x: hit.x,
+        y: hit.y,
+        z: hit.z,
+        isChain: false,
+        wasPassenger: false,
+        bonusTimeSeconds: hit.bonusTimeSeconds,
+        oneWheelVariant: hit.oneWheelVariant,
+      });
+      triggerChainAround(hit.x, hit.z);
     }
 
     // Waiting passenger direct impacts

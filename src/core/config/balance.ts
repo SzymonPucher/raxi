@@ -139,8 +139,14 @@ export const BALANCE = {
   pedChainRadius: 3.0,
   pedChainDelay: 0.3,
   pedRespawnDelay: 20.0,
-  pedDiveDetectRadius: 14.0,
+  pedDiveDetectRadius: 4.2,
+  pedDiveSpeed: 1.9,
+  pedDiveDuration: 0.55,
   pedScareRadius: 1.0,
+  oneWheelSpawnIntervalSec: 180,
+  oneWheelTimeBonus: 10,
+  oneWheelDespawnRadius: 220,
+  oneWheelLifetimeSec: 90,
 
   // Traffic (§7.1)
   trafficBaseCount: 34,
