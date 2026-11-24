@@ -598,47 +598,55 @@ export class AudioManager {
   }
 
   /**
-   * Comical pig grunt / snort ("chrumknięcie") played when nitro ends.
+   * Very loud, punchy comical pig grunt / snort ("chrumknięcie") played when nitro ends.
    * Safe no-op when audio context or SFX bus is unavailable.
    */
   playGrunt(): void {
     if (!this.ctx || !this.sfxGain) return;
+    if (this.ctx.state === 'suspended') {
+      this.ctx.resume?.().catch(() => {});
+    }
     const now = this.ctx.currentTime;
 
-    // Pulse 1: main guttural pig grunt with dual nasal formant resonances
+    // Pulse 1: loud guttural pig grunt ("CHRUM-") with direct low body + wide nasal formants
     const osc1 = this.ctx.createOscillator();
     const sub1 = this.ctx.createOscillator();
     const nasal1 = this.ctx.createBiquadFilter();
     const formant1 = this.ctx.createBiquadFilter();
     const gain1 = this.ctx.createGain();
     const formantGain1 = this.ctx.createGain();
+    const bodyGain1 = this.ctx.createGain();
 
     osc1.type = 'sawtooth';
-    osc1.frequency.setValueAtTime(142, now);
-    osc1.frequency.exponentialRampToValueAtTime(152, now + 0.022);
-    osc1.frequency.exponentialRampToValueAtTime(96, now + 0.115);
+    osc1.frequency.setValueAtTime(145, now);
+    osc1.frequency.exponentialRampToValueAtTime(160, now + 0.03);
+    osc1.frequency.exponentialRampToValueAtTime(88, now + 0.165);
 
     sub1.type = 'triangle';
-    sub1.frequency.setValueAtTime(106, now);
-    sub1.frequency.exponentialRampToValueAtTime(76, now + 0.115);
+    sub1.frequency.setValueAtTime(98, now);
+    sub1.frequency.exponentialRampToValueAtTime(72, now + 0.165);
 
     nasal1.type = 'bandpass';
-    nasal1.frequency.setValueAtTime(540, now);
-    nasal1.frequency.exponentialRampToValueAtTime(330, now + 0.115);
-    nasal1.Q.value = 3.8;
+    nasal1.frequency.setValueAtTime(420, now);
+    nasal1.frequency.exponentialRampToValueAtTime(260, now + 0.165);
+    nasal1.Q.value = 1.5;
 
     formant1.type = 'bandpass';
-    formant1.frequency.setValueAtTime(1180, now);
-    formant1.frequency.exponentialRampToValueAtTime(820, now + 0.115);
-    formant1.Q.value = 4.6;
+    formant1.frequency.setValueAtTime(960, now);
+    formant1.frequency.exponentialRampToValueAtTime(640, now + 0.165);
+    formant1.Q.value = 1.8;
 
     gain1.gain.setValueAtTime(0.001, now);
-    gain1.gain.linearRampToValueAtTime(0.34, now + 0.014);
-    gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+    gain1.gain.linearRampToValueAtTime(1.35, now + 0.014);
+    gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.175);
 
     formantGain1.gain.setValueAtTime(0.001, now);
-    formantGain1.gain.linearRampToValueAtTime(0.14, now + 0.016);
-    formantGain1.gain.exponentialRampToValueAtTime(0.001, now + 0.115);
+    formantGain1.gain.linearRampToValueAtTime(0.95, now + 0.016);
+    formantGain1.gain.exponentialRampToValueAtTime(0.001, now + 0.165);
+
+    bodyGain1.gain.setValueAtTime(0.001, now);
+    bodyGain1.gain.linearRampToValueAtTime(1.05, now + 0.012);
+    bodyGain1.gain.exponentialRampToValueAtTime(0.001, now + 0.17);
 
     osc1.connect(nasal1);
     sub1.connect(nasal1);
@@ -649,48 +657,61 @@ export class AudioManager {
     formant1.connect(formantGain1);
     formantGain1.connect(this.sfxGain);
 
+    osc1.connect(bodyGain1);
+    sub1.connect(bodyGain1);
+    bodyGain1.connect(this.sfxGain);
+
     osc1.start(now);
     sub1.start(now);
-    osc1.stop(now + 0.125);
-    sub1.stop(now + 0.125);
+    osc1.stop(now + 0.185);
+    sub1.stop(now + 0.185);
 
-    // Pulse 2: brief second snort accent ("chrum-hk!")
-    const t2 = now + 0.13;
+    // Pulse 2: loud second snort accent ("-CHRUM!")
+    const t2 = now + 0.175;
     const osc2 = this.ctx.createOscillator();
     const sub2 = this.ctx.createOscillator();
     const nasal2 = this.ctx.createBiquadFilter();
     const gain2 = this.ctx.createGain();
+    const bodyGain2 = this.ctx.createGain();
 
     osc2.type = 'sawtooth';
-    osc2.frequency.setValueAtTime(155, t2);
-    osc2.frequency.exponentialRampToValueAtTime(102, t2 + 0.075);
+    osc2.frequency.setValueAtTime(158, t2);
+    osc2.frequency.exponentialRampToValueAtTime(94, t2 + 0.13);
 
     sub2.type = 'triangle';
-    sub2.frequency.setValueAtTime(112, t2);
-    sub2.frequency.exponentialRampToValueAtTime(80, t2 + 0.075);
+    sub2.frequency.setValueAtTime(108, t2);
+    sub2.frequency.exponentialRampToValueAtTime(75, t2 + 0.13);
 
     nasal2.type = 'bandpass';
-    nasal2.frequency.setValueAtTime(640, t2);
-    nasal2.frequency.exponentialRampToValueAtTime(390, t2 + 0.075);
-    nasal2.Q.value = 4.2;
+    nasal2.frequency.setValueAtTime(480, t2);
+    nasal2.frequency.exponentialRampToValueAtTime(290, t2 + 0.13);
+    nasal2.Q.value = 1.6;
 
     gain2.gain.setValueAtTime(0.001, t2);
-    gain2.gain.linearRampToValueAtTime(0.24, t2 + 0.012);
-    gain2.gain.exponentialRampToValueAtTime(0.001, t2 + 0.08);
+    gain2.gain.linearRampToValueAtTime(1.15, t2 + 0.012);
+    gain2.gain.exponentialRampToValueAtTime(0.001, t2 + 0.135);
+
+    bodyGain2.gain.setValueAtTime(0.001, t2);
+    bodyGain2.gain.linearRampToValueAtTime(0.9, t2 + 0.012);
+    bodyGain2.gain.exponentialRampToValueAtTime(0.001, t2 + 0.135);
 
     osc2.connect(nasal2);
     sub2.connect(nasal2);
     nasal2.connect(gain2);
     gain2.connect(this.sfxGain);
 
+    osc2.connect(bodyGain2);
+    sub2.connect(bodyGain2);
+    bodyGain2.connect(this.sfxGain);
+
     osc2.start(t2);
     sub2.start(t2);
-    osc2.stop(t2 + 0.085);
-    sub2.stop(t2 + 0.085);
+    osc2.stop(t2 + 0.145);
+    sub2.stop(t2 + 0.145);
 
-    // Subtle filtered nasal snort noise bursts
-    this.playNoiseBurst(0.09, 860, 0.11, this.sfxGain, 'bandpass', 0.008, 2.6);
-    this.playNoiseBurst(0.055, 1020, 0.08, this.sfxGain, 'bandpass', 0.132, 3.0);
+    // Loud nasal snort noise bursts
+    this.playNoiseBurst(0.14, 720, 0.65, this.sfxGain, 'bandpass', 0.008, 1.3);
+    this.playNoiseBurst(0.1, 860, 0.55, this.sfxGain, 'bandpass', 0.178, 1.4);
   }
 
   playClick(): void {

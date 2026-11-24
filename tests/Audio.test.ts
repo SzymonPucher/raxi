@@ -382,6 +382,10 @@ describe('AudioManager playGrunt & 8-bit chiptune breakbeat music', () => {
 
     const routedToSfx = fake.gains.filter((g) => g.connectedTo.includes(sfxGain));
     expect(routedToSfx.length).toBeGreaterThanOrEqual(4);
+    const maxPeakGain = Math.max(
+      ...routedToSfx.flatMap((g) => g.gain.calls.map((c) => c.value))
+    );
+    expect(maxPeakGain).toBeGreaterThanOrEqual(1.0);
   });
 
   it('steps the 8-bit Prodigy Omen-style breakbeat sequencer at 140/152 BPM across all 128 steps', () => {
