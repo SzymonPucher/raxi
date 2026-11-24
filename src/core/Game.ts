@@ -595,6 +595,7 @@ export class Game {
         this.nitroActive = enabled;
         this.events.emit('vehicle:boost', { active: enabled });
       },
+      playNitroGrunt: () => this.audio.playGrunt(),
       hopCar: (heightMeters) => {
         this.vehicle.hop(heightMeters);
         this.audio.playLandingThump();
@@ -765,6 +766,9 @@ export class Game {
     // 2. Vehicle step
     this.vehicleStats.perfMult = this.shift.condition.performanceMult;
     this.vehicleStats.rainGripMult = this.shift.difficulty.rainGripMultiplier;
+    if (input.turnAround) {
+      this.vehicle.turnAround180();
+    }
     const { driftOut, autoReset, manualReset } = this.vehicle.step(dt, input, {
       allowControl: true,
       boostActive: this.nitroActive,
@@ -815,7 +819,8 @@ export class Game {
             z: f.destinationZ,
           })),
       this.rng,
-      this.timeSec
+      this.timeSec,
+      !inBreak
     );
     this.processPedestrianImpacts(pedRes, inBreak);
 
@@ -927,6 +932,15 @@ export class Game {
       this.audio.playPedExplosion();
       this.chaseCam.addShake(1.0, 0.38);
       this.input.gamepad.rumble(260, 0.9, 0.6);
+
+      if (ex.bonusTimeSeconds && ex.bonusTimeSeconds > 0) {
+        if (!inBreak) {
+          this.grantTime(ex.bonusTimeSeconds, 'OneWheel Bonus');
+          this.audio.playPickupChime();
+          this.ui.hud.showPopup(`🛞 ONEWHEEL BONUS! +${ex.bonusTimeSeconds}s!`, '#00e676', true);
+        }
+        continue;
+      }
 
       if (!ex.isChain) {
         this.vehicle.applyExplosionKnockback();
