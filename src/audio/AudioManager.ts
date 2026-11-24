@@ -213,192 +213,324 @@ export class AudioManager {
     }
     this.engine.update({ ...engineParams, ctx: this.ctx, dt });
 
-    // Upbeat synth-pop / dance-pop loop sequencer (16th-note grid, 8 bars = 128 steps)
+    // Energetic 8-bit chiptune breakbeat sequencer (16th-note grid, 8 bars = 128 steps)
     if (this.musicPlaying && this.ctx && this.ctx.state === 'running' && this.musicGain) {
-      const bpm = this.musicIntense ? 132 : 120;
+      const bpm = this.musicIntense ? 152 : 140;
       const stepDur = 60 / bpm / 4; // 16th notes
       this.musicTimer = Math.min(this.musicTimer + dt, stepDur * 2);
       if (this.musicTimer >= stepDur) {
         this.musicTimer -= stepDur;
-        this.playPopMusicStep(this.musicStep, stepDur);
+        this.playChiptuneBreakbeatStep(this.musicStep, stepDur);
         this.musicStep = (this.musicStep + 1) % 128;
       }
     }
   }
 
-  private playPopMusicStep(step: number, dur: number): void {
+  private playChiptuneBreakbeatStep(step: number, dur: number): void {
     if (!this.ctx || !this.musicGain) return;
     const now = this.ctx.currentTime;
-    const bar = Math.floor(step / 16) % 4; // 0: C, 1: G, 2: Am, 3: F (I-V-vi-IV pop progression)
+    const bar = Math.floor(step / 16) % 4; // 4-bar minor/Phrygian rave cycle: Em -> Em -> C/D -> F/Em
     const stepInBar = step % 16;
-    const isChorus = step >= 64;
+    const isDrop = step >= 64;
 
-    // Chord progression: C -> G -> Am -> F
-    const bassRoots = [65.41, 98.0, 110.0, 87.31]; // C2, G2, A2, F2
-    const chords: [number, number, number][] = [
-      [261.63, 329.63, 392.0], // C4, E4, G4
-      [246.94, 293.66, 392.0], // B3, D4, G4
-      [261.63, 329.63, 440.0], // C4, E4, A4
-      [261.63, 349.23, 440.0], // C4, F4, A4
-    ];
+    // E minor / E Phrygian note frequencies (Hz)
+    const C2 = 65.41;
+    const D2 = 73.42;
+    const E2 = 82.41;
+    const F2 = 87.31;
+    const G2 = 98.0;
+    const A2 = 110.0;
+    const C3 = 130.81;
+    const D3 = 146.83;
+    const E3 = 164.81;
+    const F3 = 174.61;
+    const C4 = 261.63;
+    const D4 = 293.66;
+    const E4 = 329.63;
+    const F4 = 349.23;
+    const G4 = 392.0;
+    const A4 = 440.0;
+    const B4 = 493.88;
+    const C5 = 523.25;
+    const D5 = 587.33;
+    const E5 = 659.25;
+    const F5 = 698.46;
+    const G5 = 783.99;
+    const A5 = 880.0;
+    const B5 = 987.77;
+    const C6 = 1046.5;
+    const D6 = 1174.66;
+    const E6 = 1318.51;
 
-    // 1. Bouncy octave-pop synth bass (syncopated dance-pop pattern)
-    const bassPattern = [1, 0, 0, 2, 0, 0, 2, 0, 1, 0, 2, 0, 0, 1, 2, 0];
-    const bassMult = bassPattern[stepInBar];
-    if (bassMult > 0) {
-      const bFreq = bassRoots[bar] * bassMult;
+    // 1. Gritty 8-bit syncopated rave bassline (square + detuned sawtooth through resonant lowpass)
+    // Pattern codes: 0 = rest, 1 = root, 2 = octave punch, 3 = Phrygian tension note
+    const bassPattern = [1, 0, 1, 2, 0, 1, 3, 0, 1, 0, 2, 0, 1, 0, 3, 2];
+    const bassCode = bassPattern[stepInBar];
+    if (bassCode > 0) {
+      let bRoot = E2;
+      let bOct = E3;
+      let bTension = F2;
+      if (bar === 1) {
+        bRoot = E2;
+        bOct = E3;
+        bTension = G2;
+      } else if (bar === 2) {
+        if (stepInBar < 8) {
+          bRoot = C2;
+          bOct = C3;
+          bTension = G2;
+        } else {
+          bRoot = D2;
+          bOct = D3;
+          bTension = A2;
+        }
+      } else if (bar === 3) {
+        if (stepInBar < 8) {
+          bRoot = F2;
+          bOct = F3;
+          bTension = C3;
+        } else {
+          bRoot = E2;
+          bOct = E3;
+          bTension = F2;
+        }
+      }
+
+      const bFreq = bassCode === 1 ? bRoot : bassCode === 2 ? bOct : bTension;
       const bOsc = this.ctx.createOscillator();
-      const bSub = this.ctx.createOscillator();
+      const bGrit = this.ctx.createOscillator();
       const filt = this.ctx.createBiquadFilter();
       const bGain = this.ctx.createGain();
 
-      bOsc.type = 'sawtooth';
+      bOsc.type = 'square';
       bOsc.frequency.setValueAtTime(bFreq, now);
-      bSub.type = 'sine';
-      bSub.frequency.setValueAtTime(bFreq, now);
+      bGrit.type = 'sawtooth';
+      bGrit.frequency.setValueAtTime(bFreq * 1.005, now);
 
       filt.type = 'lowpass';
-      filt.frequency.setValueAtTime(900, now);
-      filt.frequency.exponentialRampToValueAtTime(260, now + dur * 1.4);
+      filt.Q.value = 3.2;
+      filt.frequency.setValueAtTime(this.musicIntense ? 1150 : 960, now);
+      filt.frequency.exponentialRampToValueAtTime(240, now + dur * 1.35);
 
       bGain.gain.setValueAtTime(0.001, now);
-      bGain.gain.linearRampToValueAtTime(0.11, now + 0.008);
-      bGain.gain.exponentialRampToValueAtTime(0.001, now + dur * 1.6);
+      bGain.gain.linearRampToValueAtTime(0.105, now + 0.005);
+      bGain.gain.exponentialRampToValueAtTime(0.001, now + dur * 1.45);
 
       bOsc.connect(filt);
-      bSub.connect(filt);
+      bGrit.connect(filt);
       filt.connect(bGain);
       bGain.connect(this.musicGain);
 
       bOsc.start(now);
-      bSub.start(now);
-      bOsc.stop(now + dur * 1.65);
-      bSub.stop(now + dur * 1.65);
+      bGrit.start(now);
+      bOsc.stop(now + dur * 1.5);
+      bGrit.stop(now + dur * 1.5);
     }
 
-    // 2. Warm pop synth chord stabs (syncopated tropical/dance-pop rhythm)
-    const chordHit =
-      stepInBar === 0 ||
-      stepInBar === 6 ||
-      stepInBar === 12 ||
-      (isChorus && (stepInBar === 3 || stepInBar === 10));
-    if (chordHit) {
-      const chord = chords[bar];
-      const cDur = dur * (stepInBar === 0 ? 3.2 : 2.1);
-      const cFilt = this.ctx.createBiquadFilter();
-      cFilt.type = 'lowpass';
-      cFilt.frequency.setValueAtTime(isChorus ? 2200 : 1650, now);
-
-      const cGain = this.ctx.createGain();
-      cGain.gain.setValueAtTime(0.001, now);
-      cGain.gain.linearRampToValueAtTime(isChorus ? 0.045 : 0.036, now + 0.012);
-      cGain.gain.exponentialRampToValueAtTime(0.001, now + cDur);
-
-      cFilt.connect(cGain);
-      cGain.connect(this.musicGain);
-
-      for (const freq of chord) {
-        const osc = this.ctx.createOscillator();
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(freq, now);
-        osc.connect(cFilt);
-        osc.start(now);
-        osc.stop(now + cDur + 0.02);
-      }
-    }
-
-    // 3. Catchy pop synth pluck melody (8-bar verse + chorus hook in C major)
-    const melody: number[] = [
-      // Bar 1 (C): E5 - G5 - E5 - D5 - C5
-      659.25, 0, 0, 783.99, 0, 0, 659.25, 0, 587.33, 0, 523.25, 0, 0, 659.25, 0, 0,
-      // Bar 2 (G): D5 - G5 - D5 - B4
-      587.33, 0, 0, 783.99, 0, 0, 587.33, 0, 493.88, 0, 587.33, 0, 0, 0, 0, 0,
-      // Bar 3 (Am): C5 - E5 - A5 - G5 - E5
-      523.25, 0, 659.25, 0, 880.0, 0, 783.99, 0, 659.25, 0, 523.25, 0, 659.25, 0, 0, 0,
-      // Bar 4 (F): F5 - E5 - D5 - C5 - D5
-      698.46, 0, 0, 659.25, 0, 0, 587.33, 0, 523.25, 0, 0, 587.33, 0, 0, 659.25, 0,
-      // Bar 5 (C chorus): G5 - A5 - G5 - E5 - C5
-      783.99, 0, 880.0, 0, 783.99, 0, 659.25, 0, 523.25, 0, 659.25, 0, 783.99, 0, 0, 0,
-      // Bar 6 (G chorus): G5 - B5 - A5 - G5 - D5
-      783.99, 0, 987.77, 0, 880.0, 0, 783.99, 0, 587.33, 0, 783.99, 0, 659.25, 0, 0, 0,
-      // Bar 7 (Am chorus): A5 - C6 - A5 - G5 - E5
-      880.0, 0, 1046.5, 0, 880.0, 0, 783.99, 0, 659.25, 0, 783.99, 0, 880.0, 0, 0, 0,
-      // Bar 8 (F chorus turnaround): F5 - G5 - A5 - G5 - E5 - D5
-      698.46, 0, 783.99, 0, 880.0, 0, 783.99, 0, 659.25, 0, 587.33, 0, 523.25, 0, 587.33, 0,
+    // 2. Aggressive 8-bit square/pulse lead riff with dark Phrygian tension & octave punches (8 bars = 128 steps)
+    const leadRiff: number[] = [
+      // Bar 0 (Em / Phrygian hammer)
+      E5, 0, E5, F5, 0, E5, E4, 0, G5, 0, F5, E5, 0, D5, E5, 0,
+      // Bar 1 (syncopated octave stab + flat-2 menace)
+      E5, 0, E4, E5, 0, F5, G5, 0, F5, 0, E5, D5, 0, B4, E5, F5,
+      // Bar 2 (C -> D driving rave climb)
+      G5, 0, G5, A5, 0, G5, E5, 0, A5, 0, G5, F5, 0, D5, F5, G5,
+      // Bar 3 (F -> Em Phrygian turnaround)
+      F5, 0, F5, G5, 0, F5, E5, 0, D5, 0, E5, F5, 0, E5, E4, 0,
+      // Bar 4 (Drop: screaming octave punches)
+      E5, E6, 0, F5, 0, E5, E4, E5, G5, 0, F5, E5, B5, 0, E5, 0,
+      // Bar 5 (Drop: relentless 16th chiptune rave riff)
+      E5, 0, E6, F5, 0, G5, F5, E5, B5, 0, A5, G5, F5, 0, E5, F5,
+      // Bar 6 (Drop: high C -> D climax)
+      C6, 0, G5, A5, 0, G5, E5, G5, D6, 0, A5, G5, F5, 0, A5, G5,
+      // Bar 7 (Drop: Phrygian descent & tension build)
+      F5, F5, 0, G5, A5, 0, F5, E5, E6, 0, D6, C6, B5, 0, G5, F5,
     ];
-    const lFreq = melody[step % melody.length];
+    const lFreq = leadRiff[step % leadRiff.length];
     if (lFreq > 0) {
       const lOsc = this.ctx.createOscillator();
-      const lShimmer = this.ctx.createOscillator();
+      const lPunch = this.ctx.createOscillator();
       const lFilt = this.ctx.createBiquadFilter();
       const lGain = this.ctx.createGain();
-      const lDur = dur * 1.9;
+      const punchGain = this.ctx.createGain();
+      const lDur = dur * 1.45;
+      const isOctaveAccent = stepInBar === 0 || stepInBar === 6 || stepInBar === 8 || stepInBar === 12;
 
-      lOsc.type = 'triangle';
+      lOsc.type = 'square';
       lOsc.frequency.setValueAtTime(lFreq, now);
-      lShimmer.type = 'sine';
-      lShimmer.frequency.setValueAtTime(lFreq * 2, now);
+
+      // Pulse-detune or octave-punch layer for raw 8-bit rave bite
+      lPunch.type = 'square';
+      const punchFreq =
+        isOctaveAccent && (isDrop || this.musicIntense)
+          ? lFreq >= 880
+            ? lFreq * 0.5
+            : lFreq * 2
+          : lFreq * 1.007;
+      lPunch.frequency.setValueAtTime(punchFreq, now);
+      punchGain.gain.setValueAtTime(isOctaveAccent ? 0.45 : 0.3, now);
 
       lFilt.type = 'lowpass';
-      lFilt.frequency.setValueAtTime(4200, now);
-      lFilt.frequency.exponentialRampToValueAtTime(1400, now + lDur);
+      lFilt.frequency.setValueAtTime(this.musicIntense ? 5200 : 4200, now);
+      lFilt.frequency.exponentialRampToValueAtTime(1500, now + lDur);
 
-      const peak = this.musicIntense ? 0.07 : isChorus ? 0.062 : 0.05;
+      const peak = this.musicIntense ? 0.068 : isDrop ? 0.06 : 0.052;
       lGain.gain.setValueAtTime(0.001, now);
-      lGain.gain.linearRampToValueAtTime(peak, now + 0.008);
+      lGain.gain.linearRampToValueAtTime(peak, now + 0.004);
       lGain.gain.exponentialRampToValueAtTime(0.001, now + lDur);
 
-      const shimmerGain = this.ctx.createGain();
-      shimmerGain.gain.setValueAtTime(0.28, now);
-
       lOsc.connect(lFilt);
-      lShimmer.connect(shimmerGain);
-      shimmerGain.connect(lFilt);
+      lPunch.connect(punchGain);
+      punchGain.connect(lFilt);
       lFilt.connect(lGain);
       lGain.connect(this.musicGain);
 
       lOsc.start(now);
-      lShimmer.start(now);
+      lPunch.start(now);
       lOsc.stop(now + lDur + 0.01);
-      lShimmer.stop(now + lDur + 0.01);
+      lPunch.stop(now + lDur + 0.01);
     }
 
-    // 4. Pop Drum Groove: Four-on-the-floor kick + crisp clap/snare on 2 & 4 + crisp hi-hats
-    if (stepInBar % 4 === 0 || (bar === 3 && stepInBar === 14)) {
+    // 3. Rave Power-Chord Stabs (dark minor/Phrygian 8-bit stabs)
+    const stabHit =
+      (stepInBar === 0 && (bar === 0 || bar === 2)) ||
+      (stepInBar === 6 && (bar === 1 || isDrop)) ||
+      (stepInBar === 10 && (bar === 2 || isDrop)) ||
+      (stepInBar === 12 && bar === 3 && (isDrop || this.musicIntense));
+    if (stabHit) {
+      let stabNotes: [number, number, number] = [E4, B4, E5];
+      if (bar === 1) {
+        stabNotes = [E4, G4, B4];
+      } else if (bar === 2) {
+        stabNotes = stepInBar < 8 ? [C4, G4, C5] : [D4, A4, D5];
+      } else if (bar === 3) {
+        stabNotes = stepInBar < 8 ? [F4, C5, F5] : [E4, B4, E5];
+      }
+
+      const sDur = dur * 1.85;
+      const sFilt = this.ctx.createBiquadFilter();
+      sFilt.type = 'lowpass';
+      sFilt.Q.value = 2.2;
+      sFilt.frequency.setValueAtTime(isDrop || this.musicIntense ? 3100 : 2500, now);
+      sFilt.frequency.exponentialRampToValueAtTime(720, now + sDur);
+
+      const sGain = this.ctx.createGain();
+      sGain.gain.setValueAtTime(0.001, now);
+      sGain.gain.linearRampToValueAtTime(isDrop || this.musicIntense ? 0.042 : 0.034, now + 0.006);
+      sGain.gain.exponentialRampToValueAtTime(0.001, now + sDur);
+
+      sFilt.connect(sGain);
+      sGain.connect(this.musicGain);
+
+      for (const freq of stabNotes) {
+        const osc = this.ctx.createOscillator();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(freq, now);
+        osc.connect(sFilt);
+        osc.start(now);
+        osc.stop(now + sDur + 0.015);
+      }
+    }
+
+    // 4. 8-bit Rave Siren Accents (risers into drop + drop-down alerts)
+    const isRisingSiren = step === 60 || step === 124;
+    const isDropSiren = step === 64 || (this.musicIntense && step === 96);
+    if (isRisingSiren || isDropSiren) {
+      const sirenOsc = this.ctx.createOscillator();
+      const sirenFilt = this.ctx.createBiquadFilter();
+      const sirenGain = this.ctx.createGain();
+      const sirenDur = dur * (isRisingSiren ? 3.8 : 3.0);
+
+      sirenOsc.type = 'square';
+      if (isRisingSiren) {
+        sirenOsc.frequency.setValueAtTime(440, now);
+        sirenOsc.frequency.exponentialRampToValueAtTime(1318.51, now + sirenDur);
+      } else {
+        sirenOsc.frequency.setValueAtTime(1318.51, now);
+        sirenOsc.frequency.exponentialRampToValueAtTime(659.25, now + sirenDur);
+      }
+
+      sirenFilt.type = 'bandpass';
+      sirenFilt.frequency.setValueAtTime(1350, now);
+      sirenFilt.Q.value = 2.4;
+
+      sirenGain.gain.setValueAtTime(0.001, now);
+      sirenGain.gain.linearRampToValueAtTime(0.032, now + 0.015);
+      sirenGain.gain.exponentialRampToValueAtTime(0.001, now + sirenDur);
+
+      sirenOsc.connect(sirenFilt);
+      sirenFilt.connect(sirenGain);
+      sirenGain.connect(this.musicGain);
+
+      sirenOsc.start(now);
+      sirenOsc.stop(now + sirenDur + 0.015);
+    }
+
+    // 5. Punchy Syncopated Breakbeat Drums
+    // Breakbeat Kick: driving syncopated hits on 0, 10, plus 6 / 2 / turnaround 14
+    const kickHit =
+      stepInBar === 0 ||
+      stepInBar === 10 ||
+      (stepInBar === 6 && (bar % 2 === 1 || isDrop || this.musicIntense)) ||
+      (stepInBar === 2 && isDrop && bar % 2 === 0) ||
+      (stepInBar === 14 && bar === 3);
+    if (kickHit) {
       const kOsc = this.ctx.createOscillator();
       const kGain = this.ctx.createGain();
       kOsc.type = 'sine';
-      kOsc.frequency.setValueAtTime(125, now);
-      kOsc.frequency.exponentialRampToValueAtTime(42, now + 0.095);
-      kGain.gain.setValueAtTime(0.17, now);
-      kGain.gain.exponentialRampToValueAtTime(0.001, now + 0.11);
+      kOsc.frequency.setValueAtTime(165, now);
+      kOsc.frequency.exponentialRampToValueAtTime(38, now + 0.095);
+      kGain.gain.setValueAtTime(0.18, now);
+      kGain.gain.exponentialRampToValueAtTime(0.001, now + 0.115);
       kOsc.connect(kGain);
       kGain.connect(this.musicGain);
       kOsc.start(now);
       kOsc.stop(now + 0.12);
+
+      // 8-bit kick punch click
+      const clickOsc = this.ctx.createOscillator();
+      const clickGain = this.ctx.createGain();
+      clickOsc.type = 'square';
+      clickOsc.frequency.setValueAtTime(240, now);
+      clickOsc.frequency.exponentialRampToValueAtTime(80, now + 0.018);
+      clickGain.gain.setValueAtTime(0.055, now);
+      clickGain.gain.exponentialRampToValueAtTime(0.001, now + 0.02);
+      clickOsc.connect(clickGain);
+      clickGain.connect(this.musicGain);
+      clickOsc.start(now);
+      clickOsc.stop(now + 0.022);
     }
 
-    // Crisp pop clap/snare on beats 2 & 4 (steps 4 and 12)
-    if (stepInBar === 4 || stepInBar === 12) {
-      this.playNoiseBurst(0.085, 1900, 0.09, this.musicGain, 'bandpass');
+    // Snappy 8-bit Breakbeat Snare (hard backbeat on 4 & 12 + ghost/fill snares)
+    const isMainSnare = stepInBar === 4 || stepInBar === 12;
+    const isFillSnare =
+      (isDrop && bar === 3 && (stepInBar === 13 || stepInBar === 14 || stepInBar === 15)) ||
+      (stepInBar === 7 && (bar % 2 === 1 || isDrop)) ||
+      (stepInBar === 15 && (bar === 1 || bar === 3));
+    if (isMainSnare) {
+      this.playNoiseBurst(0.095, 2100, 0.105, this.musicGain, 'bandpass', 0, 1.1);
       const sOsc = this.ctx.createOscillator();
       const sGain = this.ctx.createGain();
       sOsc.type = 'triangle';
-      sOsc.frequency.setValueAtTime(195, now);
-      sOsc.frequency.exponentialRampToValueAtTime(115, now + 0.045);
-      sGain.gain.setValueAtTime(0.06, now);
-      sGain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+      sOsc.frequency.setValueAtTime(235, now);
+      sOsc.frequency.exponentialRampToValueAtTime(110, now + 0.048);
+      sGain.gain.setValueAtTime(0.07, now);
+      sGain.gain.exponentialRampToValueAtTime(0.001, now + 0.052);
       sOsc.connect(sGain);
       sGain.connect(this.musicGain);
       sOsc.start(now);
-      sOsc.stop(now + 0.055);
+      sOsc.stop(now + 0.056);
+    } else if (isFillSnare) {
+      this.playNoiseBurst(0.05, 2600, 0.055, this.musicGain, 'bandpass', 0, 1.4);
     }
 
-    // Crisp off-beat pop hi-hats (plus 16th-note shaker hats when intense or in chorus)
+    // Crisp 8-bit Hi-Hats (open off-beat sizzle + driving 8th/16th closed hats)
     if (stepInBar % 4 === 2) {
-      this.playNoiseBurst(0.04, 7500, 0.045, this.musicGain, 'highpass');
-    } else if (this.musicIntense || (isChorus && stepInBar % 2 === 1)) {
-      this.playNoiseBurst(0.025, 8500, 0.024, this.musicGain, 'highpass');
+      this.playNoiseBurst(0.045, 7800, 0.042, this.musicGain, 'highpass');
+    } else if (stepInBar % 4 === 0) {
+      this.playNoiseBurst(0.022, 9000, 0.028, this.musicGain, 'highpass');
+    } else if (isDrop || this.musicIntense) {
+      this.playNoiseBurst(0.018, 9600, 0.022, this.musicGain, 'highpass');
     }
   }
 
@@ -432,7 +564,9 @@ export class AudioManager {
     filterFreq: number,
     gainPeak: number,
     dest?: AudioNode,
-    filterType: BiquadFilterType = 'bandpass'
+    filterType: BiquadFilterType = 'bandpass',
+    delay = 0,
+    q?: number
   ): void {
     if (!this.ctx) return;
     const target = dest ?? this.sfxGain;
@@ -449,8 +583,11 @@ export class AudioManager {
     const filt = this.ctx.createBiquadFilter();
     filt.type = filterType;
     filt.frequency.value = filterFreq;
+    if (q !== undefined) {
+      filt.Q.value = q;
+    }
     const g = this.ctx.createGain();
-    const now = this.ctx.currentTime;
+    const now = this.ctx.currentTime + delay;
     g.gain.setValueAtTime(gainPeak, now);
     g.gain.exponentialRampToValueAtTime(0.001, now + duration);
     src.connect(filt);
@@ -458,6 +595,102 @@ export class AudioManager {
     g.connect(target);
     src.start(now);
     src.stop(now + duration + 0.01);
+  }
+
+  /**
+   * Comical pig grunt / snort ("chrumknięcie") played when nitro ends.
+   * Safe no-op when audio context or SFX bus is unavailable.
+   */
+  playGrunt(): void {
+    if (!this.ctx || !this.sfxGain) return;
+    const now = this.ctx.currentTime;
+
+    // Pulse 1: main guttural pig grunt with dual nasal formant resonances
+    const osc1 = this.ctx.createOscillator();
+    const sub1 = this.ctx.createOscillator();
+    const nasal1 = this.ctx.createBiquadFilter();
+    const formant1 = this.ctx.createBiquadFilter();
+    const gain1 = this.ctx.createGain();
+    const formantGain1 = this.ctx.createGain();
+
+    osc1.type = 'sawtooth';
+    osc1.frequency.setValueAtTime(142, now);
+    osc1.frequency.exponentialRampToValueAtTime(152, now + 0.022);
+    osc1.frequency.exponentialRampToValueAtTime(96, now + 0.115);
+
+    sub1.type = 'triangle';
+    sub1.frequency.setValueAtTime(106, now);
+    sub1.frequency.exponentialRampToValueAtTime(76, now + 0.115);
+
+    nasal1.type = 'bandpass';
+    nasal1.frequency.setValueAtTime(540, now);
+    nasal1.frequency.exponentialRampToValueAtTime(330, now + 0.115);
+    nasal1.Q.value = 3.8;
+
+    formant1.type = 'bandpass';
+    formant1.frequency.setValueAtTime(1180, now);
+    formant1.frequency.exponentialRampToValueAtTime(820, now + 0.115);
+    formant1.Q.value = 4.6;
+
+    gain1.gain.setValueAtTime(0.001, now);
+    gain1.gain.linearRampToValueAtTime(0.34, now + 0.014);
+    gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+
+    formantGain1.gain.setValueAtTime(0.001, now);
+    formantGain1.gain.linearRampToValueAtTime(0.14, now + 0.016);
+    formantGain1.gain.exponentialRampToValueAtTime(0.001, now + 0.115);
+
+    osc1.connect(nasal1);
+    sub1.connect(nasal1);
+    nasal1.connect(gain1);
+    gain1.connect(this.sfxGain);
+
+    osc1.connect(formant1);
+    formant1.connect(formantGain1);
+    formantGain1.connect(this.sfxGain);
+
+    osc1.start(now);
+    sub1.start(now);
+    osc1.stop(now + 0.125);
+    sub1.stop(now + 0.125);
+
+    // Pulse 2: brief second snort accent ("chrum-hk!")
+    const t2 = now + 0.13;
+    const osc2 = this.ctx.createOscillator();
+    const sub2 = this.ctx.createOscillator();
+    const nasal2 = this.ctx.createBiquadFilter();
+    const gain2 = this.ctx.createGain();
+
+    osc2.type = 'sawtooth';
+    osc2.frequency.setValueAtTime(155, t2);
+    osc2.frequency.exponentialRampToValueAtTime(102, t2 + 0.075);
+
+    sub2.type = 'triangle';
+    sub2.frequency.setValueAtTime(112, t2);
+    sub2.frequency.exponentialRampToValueAtTime(80, t2 + 0.075);
+
+    nasal2.type = 'bandpass';
+    nasal2.frequency.setValueAtTime(640, t2);
+    nasal2.frequency.exponentialRampToValueAtTime(390, t2 + 0.075);
+    nasal2.Q.value = 4.2;
+
+    gain2.gain.setValueAtTime(0.001, t2);
+    gain2.gain.linearRampToValueAtTime(0.24, t2 + 0.012);
+    gain2.gain.exponentialRampToValueAtTime(0.001, t2 + 0.08);
+
+    osc2.connect(nasal2);
+    sub2.connect(nasal2);
+    nasal2.connect(gain2);
+    gain2.connect(this.sfxGain);
+
+    osc2.start(t2);
+    sub2.start(t2);
+    osc2.stop(t2 + 0.085);
+    sub2.stop(t2 + 0.085);
+
+    // Subtle filtered nasal snort noise bursts
+    this.playNoiseBurst(0.09, 860, 0.11, this.sfxGain, 'bandpass', 0.008, 2.6);
+    this.playNoiseBurst(0.055, 1020, 0.08, this.sfxGain, 'bandpass', 0.132, 3.0);
   }
 
   playClick(): void {
