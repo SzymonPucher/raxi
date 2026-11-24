@@ -5,7 +5,7 @@ import { ArcadeVehicle } from '../vehicle/ArcadeVehicle';
 import { MapDefinition, SidewalkSpot } from '../world/mapData';
 import { RoadEdge } from '../world/RoadGraph';
 
-export type OneWheelVariant = 'fatMan' | 'pregnantWoman';
+export type OneWheelVariant = 'fatMan' | 'pregnantWoman' | 'skinnyMan';
 
 export interface OneWheelRiderSnapshot {
   id: number;
@@ -62,16 +62,26 @@ const SPAWN_DIST_MIN = 35;
 const SPAWN_DIST_MAX = 85;
 const MAX_ACTIVE_RIDERS = 2;
 
+export const ONEWHEEL_MAN_TIME_BONUS = 5;
+
 /**
- * 50/50 deterministic selection between the two OneWheel bonus rider variants.
+ * Returns the bonus seconds awarded when hitting a OneWheel rider:
+ * pregnant woman gives 10s (`BALANCE.oneWheelTimeBonus`), men give 5s.
  */
-export function pickOneWheelVariant(rng: Rng): OneWheelVariant {
-  return rng.chance(0.5) ? 'fatMan' : 'pregnantWoman';
+export function getOneWheelTimeBonus(variant: OneWheelVariant): number {
+  return variant === 'pregnantWoman' ? BALANCE.oneWheelTimeBonus : ONEWHEEL_MAN_TIME_BONUS;
 }
 
 /**
- * Builds the OneWheel board + sculpted low-poly rider ('fatMan' or 'pregnantWoman')
- * plus a golden/cyan floating arrow and ground ring marker so players spot the +10s bonus target.
+ * Equal deterministic selection across the three OneWheel bonus rider variants.
+ */
+export function pickOneWheelVariant(rng: Rng): OneWheelVariant {
+  return rng.pick(['fatMan', 'pregnantWoman', 'skinnyMan'] as const);
+}
+
+/**
+ * Builds the OneWheel board + sculpted low-poly rider ('fatMan', 'pregnantWoman', or 'skinnyMan')
+ * plus a golden/cyan floating arrow and ground ring marker so players spot the bonus target.
  */
 export function buildOneWheelRiderMesh(variant: OneWheelVariant): OneWheelRiderVisual {
   const root = new THREE.Group();
@@ -89,7 +99,7 @@ export function buildOneWheelRiderMesh(variant: OneWheelVariant): OneWheelRiderV
   const tireMat = new THREE.MeshLambertMaterial({ color: 0x111316 });
   const hubMat = new THREE.MeshPhongMaterial({ color: 0xd8dee9, shininess: 90 });
   const fenderMat = new THREE.MeshPhongMaterial({
-    color: variant === 'fatMan' ? 0x00e5ff : 0xffca28,
+    color: variant === 'fatMan' ? 0x00e5ff : variant === 'pregnantWoman' ? 0xffca28 : 0x76ff03,
     shininess: 70,
   });
   const headlightMat = new THREE.MeshBasicMaterial({ color: 0xe8ffff });
@@ -237,7 +247,7 @@ export function buildOneWheelRiderMesh(variant: OneWheelVariant): OneWheelRiderV
     headGroup.add(head, beard, shades, capCrown, capVisor);
 
     upper.add(hips, torso, belly, headGroup);
-  } else {
+  } else if (variant === 'pregnantWoman') {
     // 'pregnantWoman'
     const dressMat = new THREE.MeshPhongMaterial({ color: 0xec407a, shininess: 26 });
     const leggingsMat = new THREE.MeshPhongMaterial({ color: 0x263238, shininess: 18 });
@@ -308,6 +318,81 @@ export function buildOneWheelRiderMesh(variant: OneWheelVariant): OneWheelRiderV
     headGroup.add(head, hairTop, longHair);
 
     upper.add(skirt, torso, pregnantBelly, headGroup);
+  } else {
+    // 'skinnyMan': slim build in black t-shirt, black pants, and big ears
+    const blackShirtMat = new THREE.MeshPhongMaterial({ color: 0x111317, shininess: 18 });
+    const blackPantsMat = new THREE.MeshPhongMaterial({ color: 0x0c0e12, shininess: 14 });
+    const hairMat = new THREE.MeshPhongMaterial({ color: 0x221a15, shininess: 22 });
+
+    const legGeo = new THREE.CylinderGeometry(0.068, 0.054, 0.76, 8);
+    const shoeGeo = new THREE.BoxGeometry(0.19, 0.09, 0.12);
+    for (const sz of [0.24, -0.24]) {
+      const leg = new THREE.Mesh(legGeo, blackPantsMat);
+      leg.position.set(0, 0.4, sz);
+      leg.rotation.x = sz > 0 ? -0.14 : 0.14;
+      leg.castShadow = true;
+      const shoe = new THREE.Mesh(shoeGeo, shoeMat);
+      shoe.position.set(0.02, 0.045, sz);
+      riderRoot.add(leg, shoe);
+    }
+
+    const upper = new THREE.Group();
+    upper.position.set(0, 0.78, 0);
+    upper.rotation.y = 0.65;
+    riderRoot.add(upper);
+
+    const hips = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.16, 0.2), blackPantsMat);
+    hips.position.set(0, 0.06, 0);
+
+    const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.165, 0.14, 0.56, 8), blackShirtMat);
+    torso.scale.set(0.95, 1.0, 0.72);
+    torso.position.set(0, 0.42, 0);
+    torso.castShadow = true;
+
+    const armGeo = new THREE.CylinderGeometry(0.05, 0.04, 0.52, 8);
+    const handGeo = new THREE.SphereGeometry(0.05, 8, 8);
+    for (const side of [-1, 1]) {
+      const arm = new THREE.Group();
+      arm.position.set(side * 0.21, 0.64, 0);
+      arm.rotation.z = side * 0.58;
+      const sleeve = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.058, 0.052, 0.16, 8),
+        blackShirtMat
+      );
+      sleeve.position.y = -0.07;
+      const armMesh = new THREE.Mesh(armGeo, skinMat);
+      armMesh.position.y = -0.25;
+      const hand = new THREE.Mesh(handGeo, skinMat);
+      hand.position.y = -0.51;
+      arm.add(sleeve, armMesh, hand);
+      upper.add(arm);
+    }
+
+    // Head with prominent big ears
+    const headGroup = new THREE.Group();
+    headGroup.position.set(0, 0.88, 0);
+    headGroup.rotation.y = -0.55;
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.155, 12, 10), skinMat);
+    head.scale.set(0.88, 1.08, 0.94);
+    head.castShadow = true;
+    const hair = new THREE.Mesh(
+      new THREE.SphereGeometry(0.162, 10, 8, 0, Math.PI * 2, 0, Math.PI * 0.55),
+      hairMat
+    );
+    hair.position.set(0, 0.03, -0.01);
+
+    const earGeo = new THREE.SphereGeometry(0.095, 10, 8);
+    for (const side of [-1, 1]) {
+      const ear = new THREE.Mesh(earGeo, skinMat);
+      ear.scale.set(0.55, 1.25, 0.78);
+      ear.position.set(side * 0.165, 0.0, 0.0);
+      ear.rotation.z = -side * 0.25;
+      ear.castShadow = true;
+      headGroup.add(ear);
+    }
+
+    headGroup.add(head, hair);
+    upper.add(hips, torso, headGroup);
   }
 
   // --- Subtle golden/cyan bonus target marker (ground ring + floating downward arrow) ---
@@ -432,7 +517,7 @@ export class OneWheelManager {
           x: r.x,
           y: r.y,
           z: r.z,
-          bonusTimeSeconds: BALANCE.oneWheelTimeBonus,
+          bonusTimeSeconds: getOneWheelTimeBonus(r.variant),
           oneWheelVariant: r.variant,
         });
         this.group.remove(r.visual.root);
