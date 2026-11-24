@@ -1,4 +1,5 @@
 import garageOwnerUrl from '../../assets/garage-owner.svg';
+import { RestrictedAuthState } from '../../auth/RestrictedAuth';
 import { BALANCE } from '../../core/config/balance';
 import { ShiftSummary } from '../../gameplay/Shift';
 import { DraftOffer } from '../../powers/Draft';
@@ -40,6 +41,8 @@ export interface ScreenCallbacks {
   onOpenHighScores(): void;
   onCloseSubscreen(): void;
   onUpdateSettings(patch: Partial<GameSettings>): void;
+  onMountRestrictedGoogleButton(container: HTMLElement): void;
+  onRestrictedSignOut(): void;
   onPickDraftPower(powerId: string, replaceSlotIndex?: number): void;
   onRerollDraft(): void;
   onSkipDraft(): void;
@@ -214,12 +217,79 @@ export function renderHighScores(
   return btns;
 }
 
-export function renderSettings(
-  container: HTMLElement,
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+export function buildRestrictedSettingsHtml(
   settings: GameSettings,
-  cb: ScreenCallbacks
-): HTMLElement[] {
-  container.innerHTML = `
+  authState: RestrictedAuthState
+): string {
+  const badge =
+    authState.status === 'authorized'
+      ? '<span class="restricted-badge unlocked">UNLOCKED</span>'
+      : authState.status === 'unauthorized'
+        ? '<span class="restricted-badge denied">ACCESS DENIED</span>'
+        : '<span class="restricted-badge locked">LOCKED</span>';
+
+  let bodyHtml = '';
+  if (authState.status === 'authorized') {
+    const emailHtml = escapeHtml(authState.email ?? '');
+    bodyHtml = `
+      <div class="restricted-account-row">
+        <span class="restricted-account-email">Signed in as <b>${emailHtml}</b></span>
+        <button type="button" class="raxi-btn restricted-mini-btn" id="s-restricted-signout">SIGN OUT</button>
+      </div>
+      <div class="settings-row restricted-setting-row">
+        <label>Special Fare Sounds</label>
+        <button type="button" class="raxi-btn" id="s-special-sounds" style="padding:6px 14px;font-size:14px">${settings.specialFareSounds ? 'ON' : 'OFF'}</button>
+      </div>
+    `;
+  } else if (authState.status === 'unauthorized') {
+    const emailHtml = escapeHtml(authState.email ?? '');
+    bodyHtml = `
+      <div class="restricted-denied">
+        Access denied for <b>${emailHtml}</b>. Only authorized Google accounts can access this section.
+      </div>
+      <div class="restricted-actions">
+        <button type="button" class="raxi-btn danger restricted-mini-btn" id="s-restricted-signout">SIGN OUT / SWITCH ACCOUNT</button>
+      </div>
+    `;
+  } else {
+    const errorHtml = authState.error
+      ? `<div class="restricted-error">${escapeHtml(authState.error)}</div>`
+      : '';
+    const loginHtml = authState.configured
+      ? '<div id="s-google-signin-slot" class="restricted-google-slot"></div>'
+      : '<div class="restricted-error">Google Sign-In is not configured (missing VITE_GOOGLE_CLIENT_ID).</div>';
+    bodyHtml = `
+      <div class="restricted-hint">Sign in with an authorized Google account to access restricted settings.</div>
+      ${errorHtml}
+      ${loginHtml}
+    `;
+  }
+
+  return `
+    <div class="settings-restricted" data-auth-status="${authState.status}">
+      <div class="settings-restricted-header">
+        <span class="settings-restricted-title">🔒 RESTRICTED</span>
+        ${badge}
+      </div>
+      ${bodyHtml}
+    </div>
+  `;
+}
+
+export function buildSettingsPanelHtml(
+  settings: GameSettings,
+  authState: RestrictedAuthState
+): string {
+  return `
     <div class="screen-panel narrow" style="text-align:left;max-width:560px">
       <h2 style="font-family:var(--font-display);font-size:34px;color:var(--taxi-yellow);margin:0;text-align:center">⚙️ SETTINGS</h2>
       <div class="raxi-checker"></div>
@@ -259,13 +329,19 @@ export function renderSettings(
         <label>Show Controls Hint</label>
         <button class="raxi-btn" id="s-ctrl" style="padding:6px 14px;font-size:14px">${settings.showControls ? 'ON' : 'OFF'}</button>
       </div>
-      <div class="settings-row">
-        <label>Special Fare Sounds</label>
-        <button class="raxi-btn" id="s-special-sounds" style="padding:6px 14px;font-size:14px">${settings.specialFareSounds ? 'ON' : 'OFF'}</button>
-      </div>
+      ${buildRestrictedSettingsHtml(settings, authState)}
       <div class="btn-row"><button class="raxi-btn primary" id="s-back">DONE</button></div>
     </div>
   `;
+}
+
+export function renderSettings(
+  container: HTMLElement,
+  settings: GameSettings,
+  authState: RestrictedAuthState,
+  cb: ScreenCallbacks
+): HTMLElement[] {
+  container.innerHTML = buildSettingsPanelHtml(settings, authState);
 
   const bindRange = (id: string, lbl: string, key: 'masterVolume' | 'musicVolume' | 'sfxVolume' | 'resolutionScale') => {
     const inp = container.querySelector<HTMLInputElement>(id)!;
@@ -308,17 +384,34 @@ export function renderSettings(
     cb.onUpdateSettings({ showControls: next });
   };
 
-  const specialSoundsBtn = container.querySelector<HTMLButtonElement>('#s-special-sounds')!;
-  specialSoundsBtn.onclick = () => {
-    const next = !settings.specialFareSounds;
-    specialSoundsBtn.textContent = next ? 'ON' : 'OFF';
-    cb.onUpdateSettings({ specialFareSounds: next });
-  };
+  const focusables: HTMLElement[] = [shakeBtn, unitsBtn, ctrlBtn];
+
+  const specialSoundsBtn = container.querySelector<HTMLButtonElement>('#s-special-sounds');
+  if (specialSoundsBtn && authState.status === 'authorized') {
+    specialSoundsBtn.onclick = () => {
+      const next = !settings.specialFareSounds;
+      specialSoundsBtn.textContent = next ? 'ON' : 'OFF';
+      cb.onUpdateSettings({ specialFareSounds: next });
+    };
+    focusables.push(specialSoundsBtn);
+  }
+
+  const signOutBtn = container.querySelector<HTMLButtonElement>('#s-restricted-signout');
+  if (signOutBtn) {
+    signOutBtn.onclick = () => cb.onRestrictedSignOut();
+    focusables.push(signOutBtn);
+  }
+
+  const googleSlot = container.querySelector<HTMLElement>('#s-google-signin-slot');
+  if (googleSlot) {
+    cb.onMountRestrictedGoogleButton(googleSlot);
+  }
 
   const backBtn = container.querySelector<HTMLButtonElement>('#s-back')!;
   backBtn.onclick = () => cb.onCloseSubscreen();
+  focusables.push(backBtn);
 
-  return [shakeBtn, unitsBtn, ctrlBtn, specialSoundsBtn, backBtn];
+  return focusables;
 }
 
 export function renderDraftScreen(

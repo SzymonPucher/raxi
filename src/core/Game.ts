@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { AudioManager } from '../audio/AudioManager';
+import { RestrictedAuthManager } from '../auth/RestrictedAuth';
 import { ChaseCamera } from '../camera/ChaseCamera';
 import { BALANCE } from './config/balance';
 import { GRAPHICS_PRESETS } from './config/graphics';
@@ -78,6 +79,7 @@ export class Game {
   public state: GameState = 'Boot';
   public readonly events = new EventBus();
   public readonly storage = new Storage();
+  public readonly restrictedAuth = new RestrictedAuthManager();
   public readonly stats = new StatSystem();
   public readonly powerManager = new PowerManager(this.stats);
   public readonly shift = new Shift();
@@ -199,7 +201,7 @@ export class Game {
       onOpenSettings: (from) => {
         this.audio.playClick();
         this.settingsReturnTo = from;
-        this.ui.showSettings(this.storage.settings);
+        this.ui.showSettings(this.storage.settings, this.restrictedAuth.getState());
       },
       onOpenHowToPlay: () => {
         this.audio.playClick();
@@ -219,6 +221,13 @@ export class Game {
       },
       onUpdateSettings: (patch) => {
         this.applySettings(patch);
+      },
+      onMountRestrictedGoogleButton: (container) => {
+        void this.restrictedAuth.mountGoogleSignInButton(container);
+      },
+      onRestrictedSignOut: () => {
+        this.audio.playClick();
+        this.restrictedAuth.signOut();
       },
       onPickDraftPower: (powerId, replaceSlotIndex) => {
         this.handleDraftPick(powerId, replaceSlotIndex);
@@ -255,8 +264,14 @@ export class Game {
     // 3. Build initial selected map world, physics, vehicle, traffic, peds, & debug panel
     this.loadMap(this.storage.settings.selectedMap);
 
-    // 4. Apply saved graphics & audio settings
+    // 4. Apply saved graphics & audio settings and sync restricted auth changes
     this.applySettings(this.storage.settings);
+    this.restrictedAuth.subscribe((authState) => {
+      this.audio.setSpecialSoundsEnabled(this.isSpecialFareSoundsActive());
+      if (this.ui.activeScreen === 'settings') {
+        this.ui.showSettings(this.storage.settings, authState);
+      }
+    });
 
     // 8. Wire window events (resize + F11 fullscreen + audio unlock)
     window.addEventListener('resize', () => this.onResize());
@@ -412,13 +427,21 @@ export class Game {
     this.renderer.setSize(w, h);
   }
 
+  private isSpecialFareSoundsActive(): boolean {
+    return this.restrictedAuth.isAuthorized() && this.storage.settings.specialFareSounds;
+  }
+
   private applySettings(patch: Partial<GameSettings>): void {
-    this.storage.updateSettings(patch);
+    const safePatch: Partial<GameSettings> = { ...patch };
+    if ('specialFareSounds' in safePatch && !this.restrictedAuth.isAuthorized()) {
+      delete safePatch.specialFareSounds;
+    }
+    this.storage.updateSettings(safePatch);
     const s = this.storage.settings;
     const preset = GRAPHICS_PRESETS[s.graphicsPreset];
 
     this.audio.setVolumes(s.masterVolume, s.musicVolume, s.sfxVolume);
-    this.audio.setSpecialSoundsEnabled(s.specialFareSounds);
+    this.audio.setSpecialSoundsEnabled(this.isSpecialFareSoundsActive());
     this.chaseCam.shakeEnabled = s.cameraShake;
     this.ui.hud.setVignette(preset.vignette);
     this.fx.setMaxParticles(preset.maxParticles);
@@ -1302,7 +1325,7 @@ export class Game {
     this.spawner.waiting.splice(idx, 1);
 
     const hasSpecialAudio = this.shift.specialFare.rollForPickup(
-      this.storage.settings.specialFareSounds,
+      this.isSpecialFareSoundsActive(),
       this.specialFareRng
     );
 
@@ -1376,7 +1399,7 @@ export class Game {
     this.grantTime(rewards.deliveryTimeBonus, 'Delivery');
     this.audio.playDeliveryCashRegister();
     this.audio.playGradeStamp(ratings.grade);
-    if (fare.hasSpecialAudio && this.storage.settings.specialFareSounds) {
+    if (fare.hasSpecialAudio && this.isSpecialFareSoundsActive()) {
       this.audio.playSpecialClientExit();
     }
 
@@ -1424,7 +1447,7 @@ export class Game {
 
   private hasSpecialAudioFareOnBoard(): boolean {
     return (
-      this.storage.settings.specialFareSounds &&
+      this.isSpecialFareSoundsActive() &&
       this.shift.activeFares.some((f) => f.hasSpecialAudio)
     );
   }

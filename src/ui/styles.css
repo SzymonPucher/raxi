@@ -1142,6 +1142,111 @@ body {
   font-size: 14px;
 }
 
+.settings-restricted {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border-radius: 11px;
+  background: rgba(10, 14, 21, 0.72);
+  border: 1px solid rgba(255, 204, 0, 0.28);
+}
+.settings-restricted[data-auth-status='authorized'] {
+  border-color: rgba(0, 230, 118, 0.48);
+}
+.settings-restricted[data-auth-status='unauthorized'] {
+  border-color: rgba(255, 61, 87, 0.55);
+}
+.settings-restricted-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.settings-restricted-title {
+  font-family: var(--font-display);
+  font-size: 16px;
+  letter-spacing: 1px;
+  color: var(--taxi-yellow);
+}
+.restricted-badge {
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.9px;
+  padding: 2px 8px;
+  border-radius: 99px;
+  text-transform: uppercase;
+}
+.restricted-badge.locked {
+  background: rgba(255, 204, 0, 0.16);
+  border: 1px solid rgba(255, 204, 0, 0.45);
+  color: var(--taxi-yellow);
+}
+.restricted-badge.unlocked {
+  background: rgba(0, 230, 118, 0.16);
+  border: 1px solid rgba(0, 230, 118, 0.5);
+  color: var(--accent-green);
+}
+.restricted-badge.denied {
+  background: rgba(255, 61, 87, 0.16);
+  border: 1px solid rgba(255, 61, 87, 0.55);
+  color: #ff6e7f;
+}
+.restricted-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.45;
+  margin-bottom: 10px;
+}
+.restricted-google-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-height: 40px;
+}
+.restricted-account-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-bottom: 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 12px;
+  color: #cfd8dc;
+}
+.restricted-account-email {
+  word-break: break-all;
+}
+.restricted-setting-row {
+  border-bottom: none;
+  padding-bottom: 2px;
+}
+.restricted-denied {
+  font-size: 12px;
+  line-height: 1.45;
+  color: #ff8a98;
+  background: rgba(255, 61, 87, 0.12);
+  border: 1px solid rgba(255, 61, 87, 0.35);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+}
+.restricted-error {
+  font-size: 12px;
+  line-height: 1.4;
+  color: #ffb74d;
+  margin-bottom: 8px;
+}
+.restricted-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+.restricted-mini-btn {
+  padding: 5px 12px;
+  font-size: 12px;
+}
+
 
 /* Mobile Touch Controls Overlay */
 .touch-controls-layer {

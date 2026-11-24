@@ -1,3 +1,4 @@
+import { RestrictedAuthState } from '../auth/RestrictedAuth';
 import { CarCondition } from '../gameplay/CarCondition';
 import { ShiftSummary } from '../gameplay/Shift';
 import { Wallet } from '../gameplay/Wallet';
@@ -97,8 +98,11 @@ export class UIManager {
     this.mountScreen('highScores', renderHighScores(this.screenOverlay, scores, this.callbacks));
   }
 
-  showSettings(settings: GameSettings): void {
-    this.mountScreen('settings', renderSettings(this.screenOverlay, settings, this.callbacks));
+  showSettings(settings: GameSettings, authState: RestrictedAuthState): void {
+    this.mountScreen(
+      'settings',
+      renderSettings(this.screenOverlay, settings, authState, this.callbacks)
+    );
   }
 
   showDraft(

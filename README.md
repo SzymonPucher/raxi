@@ -35,6 +35,9 @@ npm run lint       # ESLint check
 npm run build      # Production static build -> dist/ (deployable to itch.io / GitHub Pages)
 ```
 
+### Restricted Settings (Google Sign-In)
+The **Restricted** section inside Settings uses Google Identity Services. The default OAuth 2.0 Web Client ID can be overridden via `VITE_GOOGLE_CLIENT_ID` (in `.env.local` or GitHub Actions `vars.VITE_GOOGLE_CLIENT_ID`). Make sure your Google Cloud OAuth client includes your app origins under **Authorized JavaScript origins** (e.g. `https://szymonpucher.github.io` and `http://localhost:5173`).
+
 ## Windows `.exe` Packaging (Tauri v2)
 Tauri v2 config is provided in `src-tauri/`. With Rust + Cargo installed:
 ```bash
