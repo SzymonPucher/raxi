@@ -638,6 +638,29 @@ body {
   font-weight: 800;
   color: var(--taxi-yellow);
 }
+.hud-speedo-indicators {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+.hud-drift-badge {
+  font-family: var(--font-display);
+  font-size: 11px;
+  letter-spacing: 1px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(255, 171, 0, 0.12);
+  border: 1px solid rgba(255, 171, 0, 0.28);
+  color: rgba(255, 204, 0, 0.35);
+  transition: background 0.12s ease, color 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+}
+.hud-drift-badge.active {
+  background: rgba(255, 152, 0, 0.28);
+  border-color: #ffab00;
+  color: #ffe57f;
+  box-shadow: 0 0 12px rgba(255, 171, 0, 0.7);
+}
 .hud-blinkers {
   display: flex;
   gap: 8px;

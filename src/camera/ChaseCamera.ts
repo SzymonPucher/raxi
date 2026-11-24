@@ -129,7 +129,8 @@ export class ChaseCamera {
     const horizSpeed = Math.hypot(vehicle.velocity.x, vehicle.velocity.z);
     if (horizSpeed > 6 && !vehicle.isReversing) {
       const velDir = this.velDir.set(vehicle.velocity.x, 0, vehicle.velocity.z).normalize();
-      desiredDir.lerp(velDir, 0.35).normalize();
+      const velBlend = THREE.MathUtils.lerp(0.35, 0.54, vehicle.driftBlend);
+      desiredDir.lerp(velDir, velBlend).normalize();
     } else if (vehicle.reverseDuration > 2.0) {
       desiredDir.negate();
     }
@@ -232,9 +233,11 @@ export class ChaseCamera {
     this.camera.position.copy(this.currentPos).add(shakeOffset);
     this.camera.lookAt(this.currentLook);
 
-    // Dynamic FOV 65..80 (+6 boost kick)
+    // Dynamic FOV 65..80 (+6 boost kick, subtle +3 drift & exit-surge widen)
     const speedNorm = Math.min(1, vehicle.speed / 45);
-    const targetFov = 65 + speedNorm * 15 + (vehicle.isBoosting ? 6 : 0);
+    const driftFov = vehicle.driftBlend * Math.min(1, vehicle.speed / 16) * 3.0;
+    const exitFov = vehicle.driftExitBoostTimer > 0 && !vehicle.isDriftMode ? 2.5 : 0;
+    const targetFov = 65 + speedNorm * 15 + (vehicle.isBoosting ? 6 : 0) + driftFov + exitFov;
     if (Math.abs(this.camera.fov - targetFov) > 0.05) {
       this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, targetFov, Math.min(1, dt * 7));
       this.camera.updateProjectionMatrix();

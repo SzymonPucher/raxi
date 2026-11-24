@@ -123,9 +123,12 @@ export class DebugPanel {
     vehF.add(vehicleConfig, 'topSpeed', 25, 80, 1);
     vehF.add(vehicleConfig, 'baseGrip', 0.3, 0.98, 0.02);
     vehF.add(vehicleConfig, 'handbrakeRearGrip', 0.1, 0.7, 0.02);
-    vehF.add(vehicleConfig, 'suspensionStiffness', 15000, 60000, 1000);
-    vehF.add(vehicleConfig, 'suspensionDamping', 1500, 10000, 200);
-    vehF.add(vehicleConfig, 'driftYawAssist', 0.5, 5.0, 0.1);
+    vehF.add(vehicleConfig, 'suspensionStiffness', 8000, 50000, 500);
+    vehF.add(vehicleConfig, 'suspensionDamping', 1200, 10000, 100);
+    vehF.add(vehicleConfig, 'driftYawAssist', 0.5, 6.0, 0.1);
+    vehF.add(vehicleConfig, 'driftTargetSlipDeg', 15, 45, 1);
+    vehF.add(vehicleConfig, 'driftCarveAssist', 0.4, 2.0, 0.05);
+    vehF.add(vehicleConfig, 'normalRollLeverArm', 0.0, 0.8, 0.02);
     vehF.close();
 
     const balF = gui.addFolder('Balance');

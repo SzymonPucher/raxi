@@ -25,8 +25,8 @@ interface ShockwaveRing {
 }
 
 const MAX_SOLID_PARTICLES = 240;
-const MAX_SMOKE_PARTICLES = 160;
-const MAX_SKIDS = 260;
+const MAX_SMOKE_PARTICLES = 180;
+const MAX_SKIDS = 420;
 
 /**
  * Pooled particle & skid-mark system (§5.4, §7.2):
@@ -297,11 +297,15 @@ export class EffectsManager {
     // Translucent wispy tire smoke & skid marks
     this.tireSmokeTimer -= dt;
     const emitSmoke = this.tireSmokeTimer <= 0;
-    if (emitSmoke) this.tireSmokeTimer = 0.06;
+    const activeDrift = vehicle.isDriftMode && vehicle.speed > 5.5;
+    if (emitSmoke) this.tireSmokeTimer = activeDrift ? 0.04 : 0.06;
 
     for (let i = 0; i < vehicle.wheels.length; i++) {
       const w = vehicle.wheels[i];
-      const slipping = w.grounded && w.slipAmount > 0.38 && vehicle.speed > 6;
+      const slipping =
+        w.grounded &&
+        ((w.slipAmount > 0.38 && vehicle.speed > 6) ||
+          (activeDrift && !w.isFront && w.slipAmount > 0.25));
       if (slipping) {
         if (emitSmoke) {
           this.spawnInPool(
@@ -310,14 +314,14 @@ export class EffectsManager {
             w.contactPoint.x,
             w.contactPoint.y + 0.14,
             w.contactPoint.z,
-            (Math.random() - 0.5) * 1.2,
-            0.55 + Math.random() * 0.45,
-            (Math.random() - 0.5) * 1.2,
-            0.48 + Math.random() * 0.22,
-            0.35,
-            1.05,
+            (Math.random() - 0.5) * 1.35,
+            0.55 + Math.random() * 0.5,
+            (Math.random() - 0.5) * 1.35,
+            activeDrift ? 0.55 + Math.random() * 0.25 : 0.48 + Math.random() * 0.22,
+            activeDrift ? 0.42 : 0.35,
+            activeDrift ? 1.2 : 1.05,
             0.3,
-            0xe4e8ec
+            activeDrift ? 0xeef2f6 : 0xe4e8ec
           );
         }
         if (this.wheelHadSkid[i]) {

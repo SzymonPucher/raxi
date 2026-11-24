@@ -109,6 +109,7 @@ export class VehicleVisual {
   private readonly glassMat: THREE.MeshPhongMaterial;
   private readonly flameLeft: THREE.Mesh;
   private readonly flameRight: THREE.Mesh;
+  private readonly flameMat: THREE.MeshBasicMaterial;
   private blinkerPhase = 0;
 
   private readonly tmpPos = new THREE.Vector3();
@@ -320,14 +321,14 @@ export class VehicleVisual {
       this.bodyTiltGroup.add(leftB, rightB);
     }
 
-    // Nitro boost exhaust flames
+    // Nitro boost & drift-exit exhaust flames
     const flameGeo = new THREE.ConeGeometry(0.15, 1.15, 8);
     flameGeo.rotateX(Math.PI * 0.5);
-    const flameMat = new THREE.MeshBasicMaterial({ color: 0x33ddff, transparent: true, opacity: 0.85 });
-    this.flameLeft = new THREE.Mesh(flameGeo, flameMat);
+    this.flameMat = new THREE.MeshBasicMaterial({ color: 0x33ddff, transparent: true, opacity: 0.85 });
+    this.flameLeft = new THREE.Mesh(flameGeo, this.flameMat);
     this.flameLeft.position.set(-0.52, -0.12, hl + 0.65);
     this.flameLeft.visible = false;
-    this.flameRight = new THREE.Mesh(flameGeo, flameMat);
+    this.flameRight = new THREE.Mesh(flameGeo, this.flameMat);
     this.flameRight.position.set(0.52, -0.12, hl + 0.65);
     this.flameRight.visible = false;
     this.bodyTiltGroup.add(this.flameLeft, this.flameRight);
@@ -371,6 +372,8 @@ export class VehicleVisual {
 
     this.bodyTiltGroup.rotation.z = this.vehicle.visualRoll;
     this.bodyTiltGroup.rotation.x = this.vehicle.visualPitch;
+    // Subtle low-slung planted stance squat while in Drift Mode
+    this.bodyTiltGroup.position.y = -this.vehicle.driftBlend * 0.055;
 
     const rest = this.vehicle.vehicleStats.config.suspensionRestLength;
     for (let i = 0; i < this.vehicle.wheels.length; i++) {
@@ -380,7 +383,7 @@ export class VehicleVisual {
 
       const travelY = w.grounded ? -(rest - w.compression) : -rest;
       pivot.position.set(w.localMount.x, w.localMount.y + travelY, w.localMount.z);
-      pivot.rotation.y = w.steerAngle;
+      pivot.rotation.y = w.isFront ? this.vehicle.visualWheelSteerAngle : 0;
       wheelMesh.rotation.x = -w.spinAngle;
     }
 
@@ -401,13 +404,17 @@ export class VehicleVisual {
     this.glassMat.transparent = this.vehicle.isGhost;
     this.glassMat.opacity = ghostOpacity;
 
-    const showFlame = this.vehicle.isBoosting;
+    const showNitro = this.vehicle.isBoosting;
+    const showExitSurge = !showNitro && this.vehicle.driftExitBoostTimer > 0 && !this.vehicle.isDriftMode;
+    const showFlame = showNitro || showExitSurge;
     this.flameLeft.visible = showFlame;
     this.flameRight.visible = showFlame;
     if (showFlame) {
-      const flicker = 0.8 + Math.random() * 0.45;
-      this.flameLeft.scale.set(1, 1, flicker);
-      this.flameRight.scale.set(1, 1, flicker);
+      this.flameMat.color.setHex(showNitro ? 0x33ddff : 0xffaa22);
+      const scaleMult = showNitro ? 1.0 : 0.65;
+      const flicker = (0.8 + Math.random() * 0.45) * scaleMult;
+      this.flameLeft.scale.set(scaleMult, scaleMult, flicker);
+      this.flameRight.scale.set(scaleMult, scaleMult, flicker);
     }
   }
 }

@@ -1892,6 +1892,7 @@ export class Game {
       throttle: this.input.state.throttle,
       slip: maxSlip,
       boosting: this.vehicle.isBoosting,
+      drifting: this.vehicle.isDriftMode || this.vehicle.drift.isDrifting,
       condition: this.shift.condition.condition,
       active: this.state === 'Driving' || this.state === 'Break',
     });
@@ -1913,6 +1914,7 @@ export class Game {
           blinker: this.vehicle.blinker,
           blinkerLit: Math.sin(this.timeSec * 14) > 0,
           boosting: this.vehicle.isBoosting,
+          driftMode: this.vehicle.isDriftMode,
           inBreakMode: this.state === 'Break' || this.state === 'BreakEnding',
           countdownText,
           stopProgress: this.stopProgress,

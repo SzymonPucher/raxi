@@ -212,6 +212,7 @@ export class AudioManager {
       throttle: number;
       slip: number;
       boosting: boolean;
+      drifting?: boolean;
       condition: number;
       active: boolean;
     }

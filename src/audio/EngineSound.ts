@@ -127,6 +127,7 @@ export class EngineSound {
     throttle: number;
     slip: number;
     boosting: boolean;
+    drifting?: boolean;
     condition: number;
     active: boolean;
     dt: number;
@@ -169,7 +170,8 @@ export class EngineSound {
     const gearMin = gearThresholds[gear];
     const gearMax = gearThresholds[gear + 1];
     const gearFrac = Math.max(0, Math.min(1, (speedKmh - gearMin) / Math.max(1, gearMax - gearMin)));
-    const rpmNorm = Math.min(1, 0.22 + gearFrac * 0.72 + params.throttle * 0.14);
+    const driftRevLift = params.drifting ? 0.14 : 0;
+    const rpmNorm = Math.min(1, 0.22 + gearFrac * 0.72 + params.throttle * 0.14 + driftRevLift);
 
     const baseFreq = 52 + rpmNorm * 135;
     this.oscMain.frequency.setTargetAtTime(baseFreq, now, 0.04);
@@ -225,7 +227,13 @@ export class EngineSound {
     this.boostGain.gain.setTargetAtTime(boostToneVol, now, boostTimeConst);
     this.boostNoiseGain.gain.setTargetAtTime(boostRumbleVol, now, boostTimeConst);
 
-    // Tire screech proportional to slip amount
+    // Tire screech proportional to slip amount, with sporty speed/slip pitch modulation during drift
+    if (this.screechFilter) {
+      const targetScreechFreq = params.drifting
+        ? 1180 + Math.min(1, params.speed / 36) * 440 + Math.min(1, params.slip) * 180
+        : 1450;
+      this.screechFilter.frequency.setTargetAtTime(targetScreechFreq, now, 0.06);
+    }
     const screechVol = params.slip > 0.35 && params.speed > 5 ? Math.min(0.11, (params.slip - 0.3) * 0.16) : 0;
     this.screechGain.gain.setTargetAtTime(screechVol, now, 0.04);
   }

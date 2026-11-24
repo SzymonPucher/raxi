@@ -30,10 +30,23 @@ export interface VehicleConfig {
 
   // Lateral & steering
   baseGrip: number; // 0..1 lateral velocity cancel factor
-  handbrakeRearGrip: number; // 0..1
+  handbrakeRearGrip: number; // 0..1 rear grip scale in drift mode
   maxSteerDegLow: number; // at 0 km/h
   maxSteerDegHigh: number; // at top speed
   steerSpeed: number; // rad/s smoothing
+
+  // Drift mode (Space) tuning
+  driftMaxSteerDegLow: number;
+  driftMaxSteerDegHigh: number;
+  driftTargetSlipDeg: number;
+  driftCarveAssist: number;
+  driftRollLevelingStrength: number;
+  driftExitBoostMult: number;
+  driftExitBoostDuration: number;
+
+  // Normal turning suspension roll tuning (visible suspension without 2-wheeling)
+  normalRollLeverArm: number; // m below COM for lateral force in normal turns
+  normalMaxRollDeg: number; // soft roll ceiling to keep all 4 wheels planted
 
   // Arcade assists
   downforceCoeff: number;
@@ -66,11 +79,11 @@ export const YELLOW_CLASSIC_CONFIG: VehicleConfig = {
   wheelWidth: 0.26,
   wheelBaseHalfZ: 1.42,
   trackHalfX: 0.86,
-  wheelMountY: -0.22,
-  suspensionRestLength: 0.5,
-  suspensionStiffness: 34000,
-  suspensionDamping: 4600,
-  maxSuspensionForce: 26000,
+  wheelMountY: -0.12,
+  suspensionRestLength: 0.54,
+  suspensionStiffness: 13800,
+  suspensionDamping: 2450,
+  maxSuspensionForce: 28000,
 
   topSpeed: 45,
   reverseTopSpeed: 12,
@@ -81,19 +94,30 @@ export const YELLOW_CLASSIC_CONFIG: VehicleConfig = {
 
   baseGrip: 0.85,
   handbrakeRearGrip: 0.35,
-  maxSteerDegLow: 35,
-  maxSteerDegHigh: 8,
+  maxSteerDegLow: 33,
+  maxSteerDegHigh: 7.5,
   steerSpeed: 8.5,
 
+  driftMaxSteerDegLow: 26,
+  driftMaxSteerDegHigh: 10,
+  driftTargetSlipDeg: 32,
+  driftCarveAssist: 1.15,
+  driftRollLevelingStrength: 32000,
+  driftExitBoostMult: 1.24,
+  driftExitBoostDuration: 0.5,
+
+  normalRollLeverArm: 0.52,
+  normalMaxRollDeg: 7.5,
+
   downforceCoeff: 3.6,
-  antiRollStrength: 4800,
+  antiRollStrength: 2400,
   selfRightingAngleDeg: 24,
   selfRightingTorque: 7500,
   airGravityMult: 1.6,
   airPitchTorque: 1200,
   airYawTorque: 1400,
-  driftYawAssist: 2.4,
-  driftThrottleBoost: 1.15,
+  driftYawAssist: 3.6,
+  driftThrottleBoost: 1.22,
   maxCollisionAngVel: 2.8,
 
   boostForceMult: 1.4,

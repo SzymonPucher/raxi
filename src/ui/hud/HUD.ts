@@ -17,6 +17,7 @@ export interface HUDUpdateData {
   blinker: BlinkerSide;
   blinkerLit: boolean;
   boosting: boolean;
+  driftMode: boolean;
   inBreakMode: boolean;
   countdownText: string | null;
   stopProgress: number; // 0..1 when stopping inside pickup/dropoff/garage
@@ -128,6 +129,7 @@ export class HUD {
   private readonly abilitiesRow: HTMLDivElement;
   private readonly speedNumEl: HTMLSpanElement;
   private readonly speedUnitEl: HTMLSpanElement;
+  private readonly driftBadgeEl: HTMLSpanElement;
   private readonly blinkLeftEl: HTMLSpanElement;
   private readonly blinkRightEl: HTMLSpanElement;
   private readonly condWrapEl: HTMLDivElement;
@@ -271,7 +273,10 @@ export class HUD {
     speedo.innerHTML = `
       <div class="hud-speedo-top">
         <div><span class="hud-speedo-num" id="hud-spd">0</span> <span class="hud-speedo-unit" id="hud-spd-unit">KM/H</span></div>
-        <div class="hud-blinkers"><span id="blk-l">◀</span><span id="blk-r">▶</span></div>
+        <div class="hud-speedo-indicators">
+          <span class="hud-drift-badge" id="hud-drift-badge">DRIFT</span>
+          <div class="hud-blinkers"><span id="blk-l">◀</span><span id="blk-r">▶</span></div>
+        </div>
       </div>
       <div class="hud-cond-wrap" id="hud-cond-wrap">
         <div class="hud-cond-label"><span>CAR CONDITION</span><span id="hud-cond-txt">100%</span></div>
@@ -280,6 +285,7 @@ export class HUD {
     `;
     this.speedNumEl = speedo.querySelector('#hud-spd')!;
     this.speedUnitEl = speedo.querySelector('#hud-spd-unit')!;
+    this.driftBadgeEl = speedo.querySelector('#hud-drift-badge')!;
     this.blinkLeftEl = speedo.querySelector('#blk-l')!;
     this.blinkRightEl = speedo.querySelector('#blk-r')!;
     this.condWrapEl = speedo.querySelector('#hud-cond-wrap')!;
@@ -433,6 +439,7 @@ export class HUD {
     this.speedNumEl.textContent = String(speedDisplay);
     this.speedUnitEl.textContent = settings.speedUnits === 'mph' ? 'MPH' : 'KM/H';
 
+    this.driftBadgeEl.classList.toggle('active', data.driftMode);
     this.blinkLeftEl.classList.toggle('lit', data.blinker === 'left' && data.blinkerLit);
     this.blinkRightEl.classList.toggle('lit', data.blinker === 'right' && data.blinkerLit);
 

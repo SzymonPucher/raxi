@@ -70,6 +70,8 @@ const _imp = new THREE.Vector3();
 const _rollVec = new THREE.Vector3();
 const _torque = new THREE.Vector3();
 const _axis = new THREE.Vector3();
+const _avgNormal = new THREE.Vector3();
+const _carveImp = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
 const _fwd = new THREE.Vector3(0, 0, -1);
 const _right = new THREE.Vector3(1, 0, 0);
@@ -97,9 +99,14 @@ export class ArcadeVehicle {
   public forwardSpeed = 0; // signed (+ forward, - reverse)
   public lateralSpeed = 0;
   public steerAngle = 0;
+  public visualWheelSteerAngle = 0;
   public isReversing = false;
   public reverseDuration = 0;
   public isBraking = false;
+  public isDriftMode = false;
+  public driftBlend = 0;
+  public driftSlipRad = 0;
+  public driftExitBoostTimer = 0;
   public isBoosting = false;
   public isGhost = false;
   public hasRollCage = false;
@@ -121,6 +128,8 @@ export class ArcadeVehicle {
   private currentMass = 1200;
   private readonly preStepVel = new THREE.Vector3();
   private hopGraceTimer = 0;
+  private driftHeldTime = 0;
+  private driftDirection = 0;
 
   constructor(
     private readonly physics: PhysicsWorld,
@@ -215,6 +224,13 @@ export class ArcadeVehicle {
     this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
     this.upsideDownTimer = 0;
     this.resetHoldTimer = 0;
+    this.isDriftMode = false;
+    this.driftBlend = 0;
+    this.driftSlipRad = 0;
+    this.driftExitBoostTimer = 0;
+    this.driftHeldTime = 0;
+    this.driftDirection = 0;
+    this.visualWheelSteerAngle = 0;
     this.syncFromBody();
     this.prevPosition.copy(this.currPosition);
     this.prevQuaternion.copy(this.currQuaternion);
@@ -424,7 +440,7 @@ export class ArcadeVehicle {
     this.speed = this.velocity.length();
     this.distanceDriven += this.speed * dt;
 
-    // Reverse logic (§5.1: below ~1 m/s with brake held -> reverse)
+    // Reverse & brake logic (§5.1: below ~1 m/s with brake held -> reverse)
     if (brake > 0.1 && this.forwardSpeed <= 1.2) {
       this.isReversing = true;
       this.isBraking = false;
@@ -432,7 +448,7 @@ export class ArcadeVehicle {
       this.isReversing = false;
       this.isBraking = brake > 0.1 && this.forwardSpeed > 0.5;
     } else {
-      this.isBraking = brake > 0.1 || handbrake;
+      this.isBraking = brake > 0.1;
     }
 
     if (this.isReversing && this.forwardSpeed < -0.5) {
@@ -441,14 +457,83 @@ export class ArcadeVehicle {
       this.reverseDuration = 0;
     }
 
-    // Speed-dependent steering (§5.1: 35° at 0 -> 8° at top speed)
+    // Drift Mode (Space): active when holding Space while driving forward (or kicking out a slide)
+    const driftRequested = options.allowControl && handbrake && !this.isReversing;
+    this.isDriftMode =
+      driftRequested &&
+      (this.forwardSpeed > 2.2 || (throttle > 0.1 && Math.abs(steerInput) > 0.1));
+
+    // Smooth blend into/out of Drift Mode so grip & stance transitions feel silky
+    const blendTarget = this.isDriftMode ? 1 : 0;
+    const blendRate = this.isDriftMode ? 12 : 7.5;
+    this.driftBlend = THREE.MathUtils.lerp(this.driftBlend, blendTarget, Math.min(1, dt * blendRate));
+
+    // Signed slip angle: positive when tail is swung left (drifting right), matching steerInput > 0
+    this.driftSlipRad =
+      this.speed > 2.2
+        ? Math.atan2(-this.lateralSpeed, Math.max(2.0, this.forwardSpeed))
+        : 0;
+    const absSlipDeg = Math.abs(THREE.MathUtils.radToDeg(this.driftSlipRad));
+
+    if (this.isDriftMode && this.speed > 4.0) {
+      if (Math.abs(steerInput) > 0.08) {
+        this.driftDirection = Math.sign(steerInput);
+      } else if (absSlipDeg < 6) {
+        this.driftDirection = 0;
+      }
+      if (absSlipDeg >= 10) {
+        this.driftHeldTime += dt;
+      }
+    } else {
+      // Crisp arcade exit traction surge after releasing a clean sustained drift
+      if (this.driftHeldTime >= 0.55 && this.forwardSpeed > 7 && brake < 0.1) {
+        const bonusFrac = Math.min(1, (this.driftHeldTime - 0.55) / 1.2);
+        this.driftExitBoostTimer = Math.max(
+          this.driftExitBoostTimer,
+          cfg.driftExitBoostDuration * (0.65 + 0.35 * bonusFrac)
+        );
+      }
+      this.driftHeldTime = 0;
+      if (this.driftBlend < 0.1) {
+        this.driftDirection = 0;
+      }
+    }
+    if (this.driftExitBoostTimer > 0) {
+      this.driftExitBoostTimer = Math.max(0, this.driftExitBoostTimer - dt);
+    }
+
+    // Speed-dependent steering (generous lock in Drift Mode for tighter cornering)
     const speedFrac = Math.min(1, this.speed / Math.max(15, eff.topSpeed));
-    const maxSteerDeg =
+    const normalMaxSteerDeg =
       THREE.MathUtils.lerp(cfg.maxSteerDegLow, cfg.maxSteerDegHigh, Math.pow(speedFrac, 0.72)) *
       eff.steerMult;
+    const driftMaxSteerDeg =
+      THREE.MathUtils.lerp(cfg.driftMaxSteerDegLow, cfg.driftMaxSteerDegHigh, Math.pow(speedFrac, 0.62)) *
+      eff.steerMult;
+    const maxSteerDeg = THREE.MathUtils.lerp(normalMaxSteerDeg, driftMaxSteerDeg, this.driftBlend);
     const targetSteerRad = THREE.MathUtils.degToRad(-steerInput * maxSteerDeg);
-    const steerStep = cfg.steerSpeed * dt;
+    const steerStep = (this.isDriftMode ? cfg.steerSpeed * 1.35 : cfg.steerSpeed) * dt;
     this.steerAngle = THREE.MathUtils.lerp(this.steerAngle, targetSteerRad, Math.min(1, steerStep));
+
+    // Visual front wheel steer: realistic counter-steer look during a sideways drift
+    let targetVisualSteer = this.steerAngle;
+    if (this.driftBlend > 0.15 && absSlipDeg > 10 && this.forwardSpeed > 4) {
+      const counterSteer = THREE.MathUtils.clamp(this.driftSlipRad * 0.85, -0.68, 0.68);
+      targetVisualSteer = THREE.MathUtils.lerp(
+        this.steerAngle,
+        counterSteer,
+        this.driftBlend * Math.min(1, (absSlipDeg - 8) / 18)
+      );
+    }
+    this.visualWheelSteerAngle = THREE.MathUtils.lerp(
+      this.visualWheelSteerAngle,
+      targetVisualSteer,
+      Math.min(1, 14 * dt)
+    );
+
+    // True rigid-body local COM height (collider offset shifts Rapier COM upward)
+    const localComY = this.body.localCom().y;
+    const massScale = eff.mass / cfg.mass;
 
     // Per-wheel contact (analytic HeightMap ground + Rapier raycast for ramps/structures)
     const rayLen = cfg.suspensionRestLength + cfg.wheelRadius;
@@ -456,6 +541,7 @@ export class ArcadeVehicle {
     let groundedCount = 0;
     let leftGrounded = 0;
     let rightGrounded = 0;
+    _avgNormal.set(0, 0, 0);
 
     // Keep track of suspension compression per side for anti-roll
     const comps = [0, 0, 0, 0];
@@ -517,19 +603,26 @@ export class ArcadeVehicle {
 
         w.contactPoint.copy(mountWorld).addScaledVector(downDir, hitToi);
         w.contactNormal.set(hitNormalX, hitNormalY, hitNormalZ);
+        _avgNormal.add(w.contactNormal);
 
         // Velocity at mount point = v + omega x r (smooth velocity-based damper, zero finite-diff chatter!)
         _rMount.subVectors(mountWorld, this.currPosition);
         _omega.set(ang.x, ang.y, ang.z);
         _mountVel.copy(_omega).cross(_rMount).add(this.velocity);
 
-        // 1. Suspension spring + velocity damper force
+        // 1. Suspension spring + progressive bump stop + velocity damper force
         const compVel = -_mountVel.dot(this.upDir);
+        const compRatio = compression / cfg.suspensionRestLength;
+        let springK = cfg.suspensionStiffness * massScale;
+        if (compRatio > 0.72) {
+          const bumpOver = (compRatio - 0.72) / 0.28;
+          springK *= 1 + bumpOver * bumpOver * 2.2;
+        }
         const springF = Math.max(
           0,
           Math.min(
-            cfg.maxSuspensionForce,
-            cfg.suspensionStiffness * compression + cfg.suspensionDamping * compVel
+            cfg.maxSuspensionForce * massScale,
+            springK * compression + cfg.suspensionDamping * massScale * compVel
           )
         );
         const fUp = _v3.copy(this.upDir).multiplyScalar(springF * dt);
@@ -539,12 +632,15 @@ export class ArcadeVehicle {
           true
         );
 
-        // Compute wheel world basis (steered for front wheels)
+        // Compute wheel world basis (steered for front wheels; neutralized during full drift to prevent front-tire snowplow braking)
         _wheelFwd.copy(this.forwardDir);
         _wheelRight.copy(this.rightDir);
-        if (w.isFront && Math.abs(w.steerAngle) > 0.0001) {
-          _wheelFwd.applyAxisAngle(this.upDir, w.steerAngle);
-          _wheelRight.applyAxisAngle(this.upDir, w.steerAngle);
+        const effWheelSteer = w.isFront
+          ? w.steerAngle * THREE.MathUtils.lerp(1.0, 0.15, this.driftBlend)
+          : 0;
+        if (Math.abs(effWheelSteer) > 0.0001) {
+          _wheelFwd.applyAxisAngle(this.upDir, effWheelSteer);
+          _wheelRight.applyAxisAngle(this.upDir, effWheelSteer);
         }
 
         // Velocity at contact point = v + omega x r
@@ -556,22 +652,27 @@ export class ArcadeVehicle {
         const wheelLatVel = _ptVel.dot(_wheelRight);
 
         // 2. Lateral grip impulse (§5.1)
-        let wheelGrip = eff.grip;
-        if (!w.isFront && handbrake) {
-          wheelGrip = eff.handbrakeGrip;
-        } else if (!w.isFront && this.drift.isDrifting && throttle > 0.3) {
-          // Keep smooth controllable drift under throttle
-          wheelGrip = Math.min(wheelGrip, 0.55);
-        }
+        // Normal mode: crisp grip with realistic sporty tire peak (~1.55G) so high-speed turns
+        // feel weighty and naturally invite Drift Mode for tight corners.
+        // Drift mode: low lateral slide damping so the car glides sideways cleanly without scrubbing speed!
+        const normalCancel = Math.min(0.95, eff.grip * 0.36);
+        const driftFrontCancel = Math.min(0.12, eff.grip * 0.042);
+        const driftRearCancel = Math.min(0.08, eff.handbrakeGrip * 0.036);
+        const driftCancel = w.isFront ? driftFrontCancel : driftRearCancel;
+        const cancelFraction = THREE.MathUtils.lerp(normalCancel, driftCancel, this.driftBlend);
 
-        // Scale grip into crisp per-step lateral impulse (normalized per wheel mass share)
         const wheelMassShare = eff.mass * 0.25;
-        const cancelFraction = Math.min(0.95, wheelGrip * (handbrake && !w.isFront ? 0.35 : 0.42));
-        const latImpulseMag = -wheelLatVel * wheelMassShare * cancelFraction;
+        let latImpulseMag = -wheelLatVel * wheelMassShare * cancelFraction;
+        // Cap per-wheel normal lateral force to crisp sporty arcade tire peak (~2.15G * grip)
+        const maxWheelLatForce = eff.mass * 0.25 * 25.5 * Math.max(0.4, eff.grip);
+        const maxWheelLatImp = maxWheelLatForce * dt;
+        if (Math.abs(latImpulseMag) > maxWheelLatImp) {
+          latImpulseMag = Math.sign(latImpulseMag) * maxWheelLatImp;
+        }
         _latImpulse.copy(_wheelRight).multiplyScalar(latImpulseMag);
-        // Apply at COM vertical height (zero local Y offset) so sharp cornering never tips the car
+        // Apply strictly at true COM height (zero single-frame impulse tipping spikes!)
         _gripPoint
-          .set(w.localMount.x, 0, w.localMount.z)
+          .set(w.localMount.x, localComY, w.localMount.z)
           .applyQuaternion(this.currQuaternion)
           .add(this.currPosition);
         this.body.applyImpulseAtPoint(
@@ -580,9 +681,13 @@ export class ArcadeVehicle {
           true
         );
 
-        w.slipAmount = Math.min(1, Math.abs(wheelLatVel) / 10 + (handbrake && !w.isFront && this.speed > 4 ? 0.6 : 0));
+        w.slipAmount = Math.min(
+          1,
+          Math.abs(wheelLatVel) / (this.isDriftMode ? 6.0 : 10) +
+            (this.isDriftMode && !w.isFront && this.speed > 5 ? 0.55 : 0)
+        );
 
-        // 3. Longitudinal forces (drive / brake / reverse / coast drag)
+        // 3. Longitudinal forces (drive / brake / reverse / coast drag — NO handbrake braking in Drift Mode!)
         const isDriven = cfg.driveType === 'AWD' || !w.isFront;
         const drivenShare = cfg.driveType === 'AWD' ? 0.25 : 0.5;
         let longForce = 0;
@@ -594,12 +699,20 @@ export class ArcadeVehicle {
           }
         } else {
           if (isDriven && throttle > 0.01) {
-            const speedRatio = Math.max(0, this.forwardSpeed / eff.topSpeed);
+            const exitBoostActive = this.driftExitBoostTimer > 0 && !this.isDriftMode;
+            const effectiveTop = exitBoostActive ? eff.topSpeed * 1.05 : eff.topSpeed;
+            const speedRatio = Math.max(0, this.forwardSpeed / effectiveTop);
             if (speedRatio < 1.0) {
               // Strong arcade punch off the line, smooth fade near top speed (~3.5s 0-100 km/h)
               const curve = Math.pow(Math.max(0, 1 - speedRatio * 0.92), 0.65);
-              const driftExtra = this.drift.isDrifting ? cfg.driftThrottleBoost : 1.0;
-              longForce += eff.engineForce * throttle * drivenShare * curve * driftExtra;
+              let driveExtra = 1.0;
+              if (this.isDriftMode || this.drift.isDrifting) {
+                driveExtra *= cfg.driftThrottleBoost;
+              }
+              if (exitBoostActive) {
+                driveExtra *= cfg.driftExitBoostMult;
+              }
+              longForce += eff.engineForce * throttle * drivenShare * curve * driveExtra;
             }
           }
           if (brake > 0.05 && this.forwardSpeed > 0.2) {
@@ -607,16 +720,14 @@ export class ArcadeVehicle {
           }
         }
 
-        if (handbrake && !w.isFront && Math.abs(wheelFwdVel) > 0.5) {
-          longForce -= Math.sign(wheelFwdVel) * eff.brakeForce * 0.16;
-        }
-
-        // Rolling resistance / gentle speed cap
+        // Rolling resistance / gentle speed cap (lighter coast drag during Drift Mode so slides glide cleanly)
         if (throttle < 0.05 && brake < 0.05) {
-          longForce -= wheelFwdVel * eff.mass * cfg.coastDrag * 0.25;
+          const coastScale = THREE.MathUtils.lerp(1.0, 0.35, this.driftBlend);
+          longForce -= wheelFwdVel * eff.mass * cfg.coastDrag * coastScale * 0.25;
         }
-        if (this.forwardSpeed > eff.topSpeed) {
-          longForce -= (this.forwardSpeed - eff.topSpeed) * eff.mass * 0.8 * 0.25;
+        const topCap = this.driftExitBoostTimer > 0 ? eff.topSpeed * 1.05 : eff.topSpeed;
+        if (this.forwardSpeed > topCap) {
+          longForce -= (this.forwardSpeed - topCap) * eff.mass * 0.8 * 0.25;
         }
 
         if (Math.abs(longForce) > 0.01) {
@@ -637,22 +748,68 @@ export class ArcadeVehicle {
       }
     }
 
-    // Anti-roll bars + roll angular velocity damping (front FL-FR, rear RL-RR)
+    // Anti-roll bars + normal-mode expressive suspension lean + drift-mode flat-stance leveler
     // Positive torque around forwardDir (-Z) lifts left (-X) and presses right (+X)
     if (groundedCount >= 1) {
+      if (_avgNormal.lengthSq() > 0.001) {
+        _avgNormal.normalize();
+      } else {
+        _avgNormal.copy(_up);
+      }
+      // Road-relative roll angle: positive when leaning right (right drops, left lifts)
+      const rollAngle = Math.asin(Math.max(-1, Math.min(1, -this.rightDir.dot(_avgNormal))));
+      const rollDeg = Math.abs(THREE.MathUtils.radToDeg(rollAngle));
+      const rollRate =
+        ang.x * this.forwardDir.x + ang.y * this.forwardDir.y + ang.z * this.forwardDir.z;
+
       const frontRollDiff = comps[0] - comps[1];
       const rearRollDiff = comps[2] - comps[3];
-      const rollRate = ang.x * this.forwardDir.x + ang.y * this.forwardDir.y + ang.z * this.forwardDir.z;
-      const antiRollTorque =
-        (frontRollDiff + rearRollDiff) * cfg.antiRollStrength * dt -
-        rollRate * eff.mass * 1.65 * dt;
+
+      // 1. Base anti-roll bar + smooth roll damping
+      let antiRollTorque =
+        (frontRollDiff + rearRollDiff) * cfg.antiRollStrength * massScale * dt -
+        rollRate * eff.mass * 2.2 * dt;
+
+      // 2. Normal mode: bounded centrifugal body-roll torque so turning visibly compresses outer springs
+      //    and extends inner springs, while tapering off cleanly well before 2-wheeling can occur!
+      if (this.driftBlend < 0.99 && groundedCount >= 3) {
+        const normalWeight = 1 - this.driftBlend;
+        const rollHeadroom = Math.max(0, 1 - rollDeg / Math.max(1, cfg.normalMaxRollDeg));
+        // Outward centrifugal accel along rightDir is (+forwardSpeed * ang.y)
+        const latG = THREE.MathUtils.clamp(this.forwardSpeed * ang.y, -19, 19);
+        const leanTorque = latG * eff.mass * cfg.normalRollLeverArm * rollHeadroom * normalWeight * dt;
+        antiRollTorque += leanTorque;
+
+        // Progressive roll ceiling guard above 68% of normalMaxRollDeg -> never lifts inside wheels!
+        const normalGuardStart = cfg.normalMaxRollDeg * 0.68;
+        if (rollDeg > normalGuardStart) {
+          const excessRad = THREE.MathUtils.degToRad(rollDeg - normalGuardStart);
+          antiRollTorque +=
+            (-Math.sign(rollAngle) * excessRad * 28000 * massScale -
+              rollRate * eff.mass * 2.6) *
+            dt *
+            normalWeight;
+        }
+      }
+
+      // 3. Drift Mode active flat-stance stabilizer: keeps chassis completely flat (zero tipping!)
+      if (this.driftBlend > 0.01) {
+        const driftLevelTorque =
+          (-rollAngle * cfg.driftRollLevelingStrength * massScale -
+            rollRate * eff.mass * 4.5) *
+          dt *
+          this.driftBlend;
+        antiRollTorque += driftLevelTorque;
+      }
+
       _rollVec.copy(this.forwardDir).multiplyScalar(antiRollTorque);
       this.body.applyTorqueImpulse({ x: _rollVec.x, y: _rollVec.y, z: _rollVec.z }, true);
     }
 
-    // Downforce proportional to v^2 (§5.1)
+    // Downforce proportional to v^2 (§5.1) + extra flat-stance drift grip downforce
     if (groundedCount > 0) {
-      const downforce = cfg.downforceCoeff * this.speed * this.speed;
+      const driftDownforceExtra = this.driftBlend * 1.8;
+      const downforce = (cfg.downforceCoeff + driftDownforceExtra) * this.speed * this.speed;
       this.body.applyImpulse({ x: 0, y: -downforce * dt, z: 0 }, true);
     } else {
       // Airborne: extra gravity (x1.6) + air pitch/yaw control (§5.1)
@@ -670,24 +827,103 @@ export class ArcadeVehicle {
       }
     }
 
-    // Drift yaw stabilization + responsive turning assist (§5.1 / §5.3)
-    if (groundedCount >= 2 && this.speed > 4) {
-      const targetYawRate = -steerInput * (handbrake ? 2.15 : 1.55) * Math.min(1, this.speed / 12);
+    // Drift Mode corner carving + slip-angle stabilization & normal turning assist
+    if (groundedCount >= 2 && this.speed > 3.2) {
       const curYawRate = ang.y;
-      if (this.drift.isDrifting || handbrake) {
-        const yawDelta = targetYawRate - curYawRate;
+      // Approximate yaw moment of inertia of the chassis cuboid so yaw tracking overcomes angularDamping cleanly
+      const yawInertia =
+        (eff.mass * (cfg.chassisWidth * cfg.chassisWidth + cfg.chassisLength * cfg.chassisLength)) / 12;
+
+      if (this.driftBlend > 0.05) {
+        const horizSpeed = Math.hypot(this.velocity.x, this.velocity.z);
+        const driftSpeedScale = Math.min(1, horizSpeed / 9.5);
+        // Target sideways drift angle: iconic 26..34 deg tail-out slide, controllable via counter-steer
+        let targetSlipDeg = 0;
+        if (Math.abs(steerInput) > 0.05) {
+          targetSlipDeg = steerInput * cfg.driftTargetSlipDeg * (0.78 + 0.22 * driftSpeedScale);
+        } else if (this.driftDirection !== 0 && absSlipDeg > 6) {
+          targetSlipDeg = this.driftDirection * cfg.driftTargetSlipDeg * 0.45 * driftSpeedScale;
+        }
+        const targetSlipRad = THREE.MathUtils.degToRad(targetSlipDeg);
+
+        // Coupled cornering angular rate cornerOmega: BOTH velocity trajectory and car heading
+        // rotate together (offset by targetSlipRad), giving ~40-45% smaller turn radius + zero spin-out!
+        const turnInput =
+          Math.abs(steerInput) > 0.05
+            ? steerInput
+            : this.driftDirection * 0.35 * Math.min(1, absSlipDeg / 20);
+        const cornerOmega =
+          turnInput *
+          THREE.MathUtils.lerp(2.25, 1.08, Math.pow(speedFrac, 0.72)) *
+          eff.steerMult *
+          Math.min(1, horizSpeed / 7.5);
+
+        // Velocity vector carving: curves velocity tightly around the apex with zero speed loss & zero roll!
+        if (horizSpeed > 3.5 && Math.abs(cornerOmega) > 0.01) {
+          // Right-of-velocity unit vector on XZ plane: (-vz, 0, vx) / horizSpeed
+          const rx = -this.velocity.z / horizSpeed;
+          const rz = this.velocity.x / horizSpeed;
+          const carveAccel =
+            horizSpeed *
+            cornerOmega *
+            cfg.driftCarveAssist *
+            Math.max(0.75, eff.grip);
+          _carveImp.set(rx, 0, rz).multiplyScalar(carveAccel * eff.mass * dt * this.driftBlend);
+          this.body.applyImpulse({ x: _carveImp.x, y: 0, z: _carveImp.z }, true);
+        }
+
+        // Heading yaw controller with angular-damping feed-forward so yaw locks cleanly to cornerOmega + slip target
+        const slipError = targetSlipRad - this.driftSlipRad;
+        const desiredYawRate = -cornerOmega - slipError * 4.5;
+        const yawAccel =
+          (desiredYawRate - curYawRate) * cfg.driftYawAssist * 2.2 +
+          desiredYawRate * cfg.angularDamping;
         this.body.applyTorqueImpulse(
-          { x: 0, y: yawDelta * cfg.driftYawAssist * eff.mass * 0.25 * dt, z: 0 },
+          {
+            x: 0,
+            y: yawAccel * yawInertia * dt * this.driftBlend,
+            z: 0,
+          },
           true
         );
-      } else if (Math.abs(steerInput) > 0.05) {
-        // Subtle arcade cornering help so 90-degree turn at 60 km/h feels crisp
-        const yawHelp = (targetYawRate * 0.85 - curYawRate) * 1.15 * eff.mass * 0.2 * dt;
-        this.body.applyTorqueImpulse({ x: 0, y: yawHelp, z: 0 }, true);
+
+        // Gentle drift cornering speed management: prevents snowplow bogging under throttle
+        // while keeping high-speed drifts controllable and exciting!
+        if (horizSpeed > 4 && horizSpeed < eff.topSpeed * 0.9) {
+          const slipRatio = Math.min(1, absSlipDeg / 28);
+          const throttleFactor = throttle > 0.1 ? throttle : 0.22;
+          const momentumBoost =
+            eff.engineForce * 0.22 * throttleFactor * slipRatio * this.driftBlend;
+          const vxN = this.velocity.x / horizSpeed;
+          const vzN = this.velocity.z / horizSpeed;
+          this.body.applyImpulse(
+            { x: vxN * momentumBoost * dt, y: 0, z: vzN * momentumBoost * dt },
+            true
+          );
+        }
+      }
+
+      if (this.driftBlend < 0.95) {
+        const normalWeight = 1 - this.driftBlend;
+        if (Math.abs(steerInput) > 0.05) {
+          // Crisp speed-tapered arcade normal cornering (larger turn radius than Drift Mode)
+          const normalMaxYaw = THREE.MathUtils.lerp(1.25, 0.65, Math.pow(speedFrac, 0.68));
+          const normalTargetYaw = -steerInput * normalMaxYaw * eff.steerMult * Math.min(1, this.speed / 9.5);
+          const yawAccel =
+            (normalTargetYaw - curYawRate) * 2.4 + normalTargetYaw * cfg.angularDamping * 0.65;
+          this.body.applyTorqueImpulse({ x: 0, y: yawAccel * yawInertia * dt * normalWeight, z: 0 }, true);
+        } else if (absSlipDeg > 3.5) {
+          // Clean straightening out when exiting a drift with neutral steering (zero tank-slapper!)
+          const straightenYaw = -this.driftSlipRad * 3.0 - curYawRate * 1.4;
+          this.body.applyTorqueImpulse(
+            { x: 0, y: straightenYaw * yawInertia * 0.85 * dt * normalWeight, z: 0 },
+            true
+          );
+        }
       }
     }
 
-    // Self-righting torque past 50 deg roll (§5.1) and Roll Cage (#19)
+    // Self-righting torque past 24 deg roll (§5.1) and Roll Cage (#19)
     const upDot = this.upDir.y; // cos(tilt)
     const tiltDeg = THREE.MathUtils.radToDeg(Math.acos(Math.max(-1, Math.min(1, upDot))));
     if (this.hasRollCage && tiltDeg > 42) {
@@ -738,17 +974,24 @@ export class ArcadeVehicle {
       this.resetHoldTimer = 0;
     }
 
-    // Visual body roll & pitch (subtle sporty feedback)
+    // Visual body roll & pitch:
+    // - Normal mode: lively visible suspension lean & squat/dive feedback
+    // - Drift mode: completely flat (zero visual roll) for planted drift-car stance
     const accelG = (this.forwardSpeed - this.prevForwardSpeed) / Math.max(0.001, dt);
     this.prevForwardSpeed = this.forwardSpeed;
-    const targetPitch = THREE.MathUtils.clamp(-accelG * 0.0045, -0.075, 0.075);
-    const targetRoll = THREE.MathUtils.clamp(
-      (steerInput * Math.min(1, this.speed / 24) * 0.08) + this.lateralSpeed * 0.004,
-      -0.1,
-      0.1
+    const targetPitch = THREE.MathUtils.clamp(-accelG * 0.0055, -0.085, 0.085);
+    const normalVisualRoll = THREE.MathUtils.clamp(
+      steerInput * Math.min(1, this.speed / 22) * 0.065 + this.lateralSpeed * 0.0025,
+      -0.08,
+      0.08
     );
+    const targetRoll = normalVisualRoll * (1 - this.driftBlend);
     this.visualPitch = THREE.MathUtils.lerp(this.visualPitch, targetPitch, Math.min(1, dt * 8));
-    this.visualRoll = THREE.MathUtils.lerp(this.visualRoll, targetRoll, Math.min(1, dt * 8));
+    this.visualRoll = THREE.MathUtils.lerp(
+      this.visualRoll,
+      targetRoll,
+      Math.min(1, dt * (this.isDriftMode ? 14 : 8))
+    );
 
     // Drift & airtime tracking
     const driftOut = this.drift.update({
