@@ -270,6 +270,10 @@ describe('Mikołów, Poland MapDefinition', () => {
       const lm = map.landmarks.find((l) => l.id === id)!;
       expect(lm.footprintParts?.length ?? 0, id).toBeGreaterThanOrEqual(1);
     }
+    const auchanLm = map.landmarks.find((l) => l.id === 'auchan_mikolow')!;
+    expect(auchanLm.footprintParts!.length).toBeGreaterThanOrEqual(8);
+    expect(auchanLm.parkingLots!.length).toBeGreaterThanOrEqual(5);
+    expect(map.worldHalfSize).toBeGreaterThanOrEqual(2000);
 
     // No generic filler building center sits inside a real landmark polygon
     const inside = (x: number, z: number, poly: Array<[number, number]>) => {
@@ -299,8 +303,9 @@ describe('Mikołów, Poland MapDefinition', () => {
     expect(rbEdges.length).toBeGreaterThan(20);
 
     const rbIds = new Set(rbEdges.map((e) => e.roundaboutId).filter(Boolean));
-    expect(rbIds.size).toBe(9);
+    expect(rbIds.size).toBe(10);
     expect(rbIds.has('rb_stolarska_13')).toBe(true);
+    expect(rbIds.has('rb_auchan_leroy')).toBe(true);
 
     for (const e of rbEdges) {
       expect(e.isOneWay).toBe(true);

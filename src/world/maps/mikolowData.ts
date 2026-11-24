@@ -14,6 +14,11 @@ import {
 import { DistrictId, RoadEdge, RoadGraph, RoadNode, RoadType } from '../RoadGraph';
 import { createMikolowHeightMap, MIKOLOW_WORLD_HALF_SIZE } from './mikolowHeight';
 import { MIKOLOW_LANDMARK_SHAPES } from './mikolowLandmarkShapes';
+import {
+  MIKOLOW_AUCHAN_NW_BUILDINGS,
+  MIKOLOW_AUCHAN_NW_EDGES,
+  MIKOLOW_AUCHAN_NW_NODES,
+} from './mikolowAuchanNW';
 import { MIKOLOW_CITY_FENCES } from './mikolowCityFences';
 import { MIKOLOW_DETAILED_BUILDINGS, MIKOLOW_FENCES } from './mikolowStreetDetails';
 
@@ -6397,7 +6402,7 @@ function getMikolowDistrictAt(x: number, z: number, fallback: DistrictId): Distr
 export function createMikolowMapDefinition(): MapDefinition {
   const heightMap = createMikolowHeightMap();
 
-  const nodes: RoadNode[] = RAW_NODES.map(([id, x, z, district, tl]) => ({
+  const nodes: RoadNode[] = [...RAW_NODES, ...MIKOLOW_AUCHAN_NW_NODES].map(([id, x, z, district, tl]) => ({
     id,
     x,
     y: heightMap.sample(x, z),
@@ -6406,7 +6411,7 @@ export function createMikolowMapDefinition(): MapDefinition {
     hasTrafficLight: tl === 1,
   }));
 
-  const edges: Omit<RoadEdge, 'length'>[] = RAW_EDGES.map((raw, idx) => ({
+  const edges: Omit<RoadEdge, 'length'>[] = [...RAW_EDGES, ...MIKOLOW_AUCHAN_NW_EDGES].map((raw, idx) => ({
     id: `mk_e_${idx}`,
     from: raw[0],
     to: raw[1],
@@ -6491,6 +6496,7 @@ export function createMikolowMapDefinition(): MapDefinition {
       style,
     })),
     ...MIKOLOW_DETAILED_BUILDINGS.filter((b) => !isInsideReserved(b.x, b.z, b.w, b.d)),
+    ...MIKOLOW_AUCHAN_NW_BUILDINGS.filter((b) => !isInsideReserved(b.x, b.z, b.w, b.d)),
   ];
 
   const fences: FenceDef[] = [...MIKOLOW_FENCES, ...MIKOLOW_CITY_FENCES].map((f) => ({
