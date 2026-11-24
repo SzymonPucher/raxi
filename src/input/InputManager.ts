@@ -43,6 +43,7 @@ export class InputManager {
       merged.cameraLeft = merged.cameraLeft || Boolean(partial.cameraLeft);
       merged.cameraRight = merged.cameraRight || Boolean(partial.cameraRight);
       merged.resetCar = merged.resetCar || Boolean(partial.resetCar);
+      merged.turnAround = merged.turnAround || Boolean(partial.turnAround);
       merged.pause = merged.pause || Boolean(partial.pause);
       merged.uiUp = merged.uiUp || Boolean(partial.uiUp);
       merged.uiDown = merged.uiDown || Boolean(partial.uiDown);

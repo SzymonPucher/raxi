@@ -14,6 +14,7 @@ export interface InputState {
   cameraLeft: boolean;
   cameraRight: boolean;
   resetCar: boolean; // held
+  turnAround: boolean; // edge-triggered
   pause: boolean; // edge-triggered
   // menu nav (edge-triggered)
   uiUp: boolean;
@@ -46,6 +47,7 @@ export function createEmptyInputState(): InputState {
     cameraLeft: false,
     cameraRight: false,
     resetCar: false,
+    turnAround: false,
     pause: false,
     uiUp: false,
     uiDown: false,

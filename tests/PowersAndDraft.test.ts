@@ -20,6 +20,7 @@ function makeMockCtx(): PowerCtx {
     setGhost: vi.fn(),
     setTimeScale: vi.fn(),
     setNitroActive: vi.fn(),
+    playNitroGrunt: vi.fn(),
     hopCar: vi.fn(),
     reduceActiveCooldowns: vi.fn(),
     rng: new Rng(99),
@@ -105,5 +106,22 @@ describe('Powers (34 total), PowerManager & Draft (§10)', () => {
     pmA.acquire('lucky_charm');
     const offer4 = generateDraftOffer({ rng: new Rng(778), powerManager: pmA, tier: 1, draftNumber: 2 });
     expect(offer4.cards.length).toBe(4);
+  });
+
+  it('activates nitro_tank with dynamic duration and triggers playNitroGrunt on end', () => {
+    const pm = new PowerManager(new StatSystem());
+    const ctx = makeMockCtx();
+
+    pm.acquire('nitro_tank', ctx);
+    const act = pm.tryActivateSlot(0, ctx);
+    expect(act.activated).toBe(true);
+    expect(act.duration).toBeDefined();
+    expect(act.duration!).toBeGreaterThanOrEqual(1);
+    expect(act.duration!).toBeLessThanOrEqual(5);
+    expect(ctx.setNitroActive).toHaveBeenCalledWith(true);
+
+    pm.tick(act.duration! + 0.05, ctx, false);
+    expect(ctx.setNitroActive).toHaveBeenLastCalledWith(false);
+    expect(ctx.playNitroGrunt).toHaveBeenCalledTimes(1);
   });
 });

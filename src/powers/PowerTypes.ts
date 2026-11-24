@@ -18,6 +18,7 @@ export interface PowerCtx {
   setGhost(enabled: boolean): void;
   setTimeScale(scale: number): void;
   setNitroActive(enabled: boolean): void;
+  playNitroGrunt?(): void;
   hopCar(heightMeters: number): void;
   reduceActiveCooldowns(seconds: number): void;
   rng: Rng;
@@ -30,6 +31,7 @@ export type PowerHooks = Partial<{
 export interface PowerActiveDef {
   cooldown: number;
   duration: number;
+  getDuration?(ctx: PowerCtx): number;
   onActivate(ctx: PowerCtx): void;
   onTick?(ctx: PowerCtx, dt: number): void;
   onEnd?(ctx: PowerCtx): void;

@@ -255,7 +255,7 @@ export class HUD {
     this.controlsHintEl.innerHTML = `
       <kbd>WASD</kbd> Drive &nbsp;<kbd>Space</kbd> Drift &nbsp;<kbd>Shift</kbd> Nitro<br/>
       <kbd>Q</kbd>/<kbd>E</kbd> Powers &nbsp;<kbd>Z</kbd>/<kbd>X</kbd> Blinkers &nbsp;<kbd>H</kbd> Horn<br/>
-      <kbd>B</kbd> Shop Break &nbsp;<kbd>C</kbd> Look Back &nbsp;<kbd>R</kbd> Reset &nbsp;<kbd>P</kbd> Pause
+      <kbd>T</kbd> 180° Turn (&lt;10 km/h) &nbsp;<kbd>B</kbd> Shop Break &nbsp;<kbd>C</kbd> Look Back &nbsp;<kbd>R</kbd> Reset &nbsp;<kbd>P</kbd> Pause
     `;
     bottomLeft.append(minimapCol, this.controlsHintEl);
     this.root.appendChild(bottomLeft);

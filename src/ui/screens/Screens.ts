@@ -154,6 +154,7 @@ export function renderHowToPlay(container: HTMLElement, cb: ScreenCallbacks): HT
             <tr><td><b>Q / E / Shift</b></td><td>Active Powers / Nitro</td></tr>
             <tr><td><b>Z / X</b></td><td>Left / Right Blinker</td></tr>
             <tr><td><b>H / C</b></td><td>Horn / Look Back</td></tr>
+            <tr><td><kbd>T</kbd></td><td>180° Turn (&lt;10 km/h)</td></tr>
             <tr><td><b>B / Hold R / Esc</b></td><td>Shop Break / Reset / Pause</td></tr>
           </table>
         </div>

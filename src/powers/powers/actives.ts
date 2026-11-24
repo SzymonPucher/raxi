@@ -1,23 +1,43 @@
+import { Rng } from '../../core/Rng';
 import { PowerDef } from '../PowerTypes';
+
+export const NITRO_NORMAL_DURATION = 3;
+export const NITRO_RANDOM_MIN_DURATION = 1;
+export const NITRO_RANDOM_MAX_DURATION = 5;
+
+/**
+ * Rolls Nitro Tank active duration:
+ * - 50% normal duration (3 s)
+ * - 50% random duration between 1 s and 5 s
+ */
+export function rollNitroDuration(rng: Rng): number {
+  if (rng.chance(0.5)) {
+    return NITRO_NORMAL_DURATION;
+  }
+  return rng.range(NITRO_RANDOM_MIN_DURATION, NITRO_RANDOM_MAX_DURATION);
+}
 
 export const ACTIVE_POWERS: PowerDef[] = [
   {
     id: 'nitro_tank',
     name: 'Nitro Tank',
-    description: 'Active: 3 s nitro boost (+40% accel, +15% top speed). 12 s cooldown.',
+    description:
+      'Active: Nitro boost (+40% accel, +15% top speed) — usually lasts 3 s, or sometimes randomly 1–5 s. 12 s cooldown.',
     rarity: 'uncommon',
     tags: ['speed'],
     maxStacks: 1,
     icon: '💨',
     active: {
       cooldown: 12,
-      duration: 3,
+      duration: NITRO_NORMAL_DURATION,
+      getDuration: (ctx) => rollNitroDuration(ctx.rng),
       onActivate(ctx) {
         ctx.setNitroActive(true);
         ctx.showPopup('NITRO BOOST!', '#00e5ff');
       },
       onEnd(ctx) {
         ctx.setNitroActive(false);
+        ctx.playNitroGrunt?.();
       },
     },
   },

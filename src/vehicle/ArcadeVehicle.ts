@@ -30,6 +30,30 @@ export interface WheelRuntime {
 
 export type BlinkerSide = 'off' | 'left' | 'right';
 
+export const TURN_AROUND_MAX_SPEED_KMH = 10;
+
+/** Returns true when speed (m/s) is strictly below 10 km/h so instant 180° turnaround is allowed. */
+export function canTurnAround180(speedMs: number): boolean {
+  return Math.abs(speedMs) * 3.6 < TURN_AROUND_MAX_SPEED_KMH;
+}
+
+/** Computes yaw rotated by 180° (π radians) around world Y, normalized to [-π, π]. */
+export function computeTurnAround180Yaw(yaw: number): number {
+  const next = yaw + Math.PI;
+  return Math.atan2(Math.sin(next), Math.cos(next));
+}
+
+/** Builds an upright quaternion rotated 180° around world Y from the given yaw. */
+export function computeTurnAround180Quat(yaw: number): { x: number; y: number; z: number; w: number } {
+  const nextYaw = computeTurnAround180Yaw(yaw);
+  return {
+    x: 0,
+    y: Math.sin(nextYaw * 0.5),
+    z: 0,
+    w: Math.cos(nextYaw * 0.5),
+  };
+}
+
 const _v1 = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const _v3 = new THREE.Vector3();
@@ -200,6 +224,27 @@ export class ArcadeVehicle {
     const pos = this.body.translation();
     const yaw = this.getYaw();
     this.setPositionAndYaw(pos.x, pos.y + 1.4, pos.z, yaw);
+  }
+
+  /**
+   * Instantly turns the vehicle 180° around the world Y axis when moving slower than 10 km/h.
+   * Returns true if the turnaround was executed, false if moving too fast.
+   */
+  turnAround180(): boolean {
+    if (!canTurnAround180(this.speed)) {
+      return false;
+    }
+    const rot = computeTurnAround180Quat(this.getYaw());
+    const vel = this.body.linvel();
+    this.body.setRotation(rot, true);
+    this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    this.body.setLinvel({ x: 0, y: vel.y, z: 0 }, true);
+    this.syncFromBody();
+    this.prevQuaternion.copy(this.currQuaternion);
+    this.forwardSpeed = this.velocity.dot(this.forwardDir);
+    this.lateralSpeed = this.velocity.dot(this.rightDir);
+    this.speed = this.velocity.length();
+    return true;
   }
 
   /** Hydraulics hop (§10.3 #13: jump ~4m up). */

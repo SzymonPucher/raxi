@@ -168,11 +168,12 @@ export class PowerManager {
     if (!slot || !slot.def.active) return { activated: false };
     if (slot.isActive || slot.cooldownRemaining > 0) return { activated: false };
 
+    const duration = slot.def.active.getDuration ? slot.def.active.getDuration(ctx) : slot.def.active.duration;
     slot.isActive = true;
-    slot.activeRemaining = slot.def.active.duration;
+    slot.activeRemaining = duration;
     slot.cooldownRemaining = slot.def.active.cooldown * this.stats.get('ability.cooldownMult');
     slot.def.active.onActivate(ctx);
-    return { activated: true, powerId: slot.powerId, duration: slot.def.active.duration };
+    return { activated: true, powerId: slot.powerId, duration };
   }
 
   /** Find nitro slot if Shift boost is pressed. */
