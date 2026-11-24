@@ -4,9 +4,10 @@ import { CG, makeCollisionGroups } from '../physics/collisionGroups';
 import { PhysicsWorld, RAPIER } from '../physics/PhysicsWorld';
 import { RoadEdge } from '../world/RoadGraph';
 
-export type TrafficVehicleKind = 'sedan' | 'hatchback' | 'van' | 'bus' | 'truck' | 'police';
+export type TrafficMotorVehicleKind = 'sedan' | 'hatchback' | 'van' | 'bus' | 'truck' | 'police';
+export type TrafficVehicleKind = TrafficMotorVehicleKind | 'cyclist';
 
-interface VehicleSpec {
+export interface VehicleSpec {
   kind: TrafficVehicleKind;
   w: number;
   h: number;
@@ -15,6 +16,9 @@ interface VehicleSpec {
   colors: number[];
 }
 
+export const CYCLIST_SPEED_MIN = 5.5;
+export const CYCLIST_SPEED_MAX = 7.0;
+
 const SPECS: VehicleSpec[] = [
   { kind: 'sedan', w: 1.88, h: 1.38, l: 4.35, mass: 1150, colors: [0xc62828, 0x1976d2, 0x2e7d32, 0xe65100, 0x6a1b9a, 0xdce3e8, 0x455a64] },
   { kind: 'hatchback', w: 1.78, h: 1.32, l: 3.75, mass: 950, colors: [0x00acc1, 0xf4511e, 0x7cb342, 0xd81b60, 0xfdd835] },
@@ -22,7 +26,47 @@ const SPECS: VehicleSpec[] = [
   { kind: 'bus', w: 2.42, h: 2.85, l: 8.6, mass: 4800, colors: [0x1565c0, 0xef6c00, 0x2e7d32] },
   { kind: 'truck', w: 2.38, h: 2.75, l: 7.4, mass: 4200, colors: [0xb71c1c, 0x37474f, 0xf9a825] },
   { kind: 'police', w: 1.9, h: 1.4, l: 4.5, mass: 1350, colors: [0x181c22] },
+  { kind: 'cyclist', w: 0.68, h: 1.65, l: 1.85, mass: 95, colors: [0xe53935, 0x1e88e5, 0x43a047, 0xfb8c00, 0x8e24aa, 0x00acc1, 0xfdd835] },
 ];
+
+export const VEHICLE_SPECS: Record<TrafficVehicleKind, VehicleSpec> = Object.fromEntries(
+  SPECS.map((s) => [s.kind, s])
+) as Record<TrafficVehicleKind, VehicleSpec>;
+
+/**
+ * 30-slot repeating motor-vehicle pool pattern:
+ * - bus:   1/30 (3.33%) — 80% reduction from previous 1/6 (16.67%)
+ * - truck: 1/30 (3.33%) — 80% reduction from previous 1/6 (16.67%)
+ * - police: 5/30 (16.67%) — unchanged
+ * - regular cars (sedan 8 + hatchback 8 + van 7): 23/30 (76.67%) — replaces removed bus/truck slots
+ */
+const TRAFFIC_POOL_PATTERN: readonly TrafficMotorVehicleKind[] = [
+  'sedan', 'hatchback', 'van', 'sedan', 'police',
+  'hatchback', 'sedan', 'van', 'hatchback', 'sedan',
+  'police', 'van', 'hatchback', 'sedan', 'bus',
+  'hatchback', 'van', 'sedan', 'police', 'hatchback',
+  'van', 'sedan', 'hatchback', 'police', 'van',
+  'sedan', 'hatchback', 'van', 'police', 'truck',
+];
+
+export function pickTrafficKindForPoolIndex(poolIndex: number): TrafficMotorVehicleKind {
+  const len = TRAFFIC_POOL_PATTERN.length;
+  const normalized = ((Math.trunc(poolIndex) % len) + len) % len;
+  return TRAFFIC_POOL_PATTERN[normalized];
+}
+
+/** Exact 60-slot motor-vehicle pool distribution matching BALANCE.trafficMaxCount. */
+export const TRAFFIC_POOL_KINDS: readonly TrafficMotorVehicleKind[] = Array.from(
+  { length: 60 },
+  (_, i) => pickTrafficKindForPoolIndex(i)
+);
+
+/** Deterministic individual cyclist cruise speed within [5.5, 7.0] m/s. */
+export function getCyclistCruiseSpeed(seed: number): number {
+  const steps = 16;
+  const idx = ((Math.trunc(seed * 7) % steps) + steps) % steps;
+  return CYCLIST_SPEED_MIN + idx * ((CYCLIST_SPEED_MAX - CYCLIST_SPEED_MIN) / (steps - 1));
+}
 
 function extrudeProfile(points: Array<[number, number]>, width: number, bevel = 0.06): THREE.BufferGeometry {
   const shape = new THREE.Shape();
@@ -70,11 +114,177 @@ interface MergedVehicleTemplate {
 interface TrafficSharedAssets {
   templates: Record<TrafficVehicleKind, MergedVehicleTemplate>;
   detailsMat: THREE.MeshPhongMaterial;
+  cyclistWheelGeo: THREE.BufferGeometry;
+  cyclistLegGeo: THREE.BufferGeometry;
 }
 
 let sharedAssets: TrafficSharedAssets | null = null;
 
+function createTubeBetween(
+  ax: number,
+  ay: number,
+  az: number,
+  bx: number,
+  by: number,
+  bz: number,
+  radiusTop: number,
+  radiusBottom = radiusTop,
+  radialSegments = 7
+): THREE.BufferGeometry {
+  const start = new THREE.Vector3(ax, ay, az);
+  const end = new THREE.Vector3(bx, by, bz);
+  const dir = end.clone().sub(start);
+  const len = Math.max(0.001, dir.length());
+  const geo = new THREE.CylinderGeometry(radiusTop, radiusBottom, len, radialSegments);
+  const quat = new THREE.Quaternion().setFromUnitVectors(
+    new THREE.Vector3(0, 1, 0),
+    dir.normalize()
+  );
+  geo.applyQuaternion(quat);
+  const mid = start.add(end).multiplyScalar(0.5);
+  geo.translate(mid.x, mid.y, mid.z);
+  return geo;
+}
+
+function buildCyclistWheelGeo(): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  const push = (geo: THREE.BufferGeometry, hex: number) => {
+    parts.push(prepNonIndexed(geo, hex));
+    geo.dispose();
+  };
+
+  // Tire + alloy rim in YZ plane (rolls forward along -Z, spins around X)
+  const tire = new THREE.TorusGeometry(0.32, 0.032, 8, 18);
+  tire.rotateY(Math.PI * 0.5);
+  push(tire, 0x181a1d);
+
+  const rim = new THREE.TorusGeometry(0.285, 0.014, 6, 18);
+  rim.rotateY(Math.PI * 0.5);
+  push(rim, 0xd4dde5);
+
+  const hub = new THREE.CylinderGeometry(0.032, 0.032, 0.1, 8);
+  hub.rotateZ(Math.PI * 0.5);
+  push(hub, 0x54606c);
+
+  // 3 diameter spokes (6 spokes) so wheel spin is clearly visible
+  for (let i = 0; i < 3; i++) {
+    const ang = (i * Math.PI) / 3;
+    const spoke = new THREE.CylinderGeometry(0.008, 0.008, 0.56, 5);
+    spoke.rotateX(ang);
+    push(spoke, 0xcfd8dc);
+  }
+
+  const merged = mergeGeometries(parts, false)!;
+  for (const p of parts) p.dispose();
+  return merged;
+}
+
+function buildCyclistLegGeo(): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  const push = (geo: THREE.BufferGeometry, hex: number) => {
+    parts.push(prepNonIndexed(geo, hex));
+    geo.dispose();
+  };
+
+  // Hip pivot is at local (0, 0, 0); bent knee forward toward -Z, foot at bottom bracket level
+  push(createTubeBetween(0, 0, 0, 0, -0.25, -0.18, 0.052, 0.064, 7), 0x1e242c);
+  const knee = new THREE.SphereGeometry(0.052, 7, 6);
+  knee.translate(0, -0.25, -0.18);
+  push(knee, 0xf0c29e);
+  push(createTubeBetween(0, -0.25, -0.18, 0, -0.55, -0.14, 0.035, 0.047, 7), 0xf0c29e);
+  const shoe = new THREE.BoxGeometry(0.09, 0.065, 0.2);
+  shoe.translate(0, -0.58, -0.17);
+  push(shoe, 0x263238);
+
+  const merged = mergeGeometries(parts, false)!;
+  for (const p of parts) p.dispose();
+  return merged;
+}
+
+function buildCyclistTemplate(): MergedVehicleTemplate {
+  const paintParts: THREE.BufferGeometry[] = [];
+  const detailParts: THREE.BufferGeometry[] = [];
+
+  const addPaint = (geo: THREE.BufferGeometry, tx = 0, ty = 0, tz = 0, rx = 0) => {
+    const g = geo.clone();
+    if (rx !== 0) g.rotateX(rx);
+    if (tx !== 0 || ty !== 0 || tz !== 0) g.translate(tx, ty, tz);
+    paintParts.push(prepNonIndexed(g));
+    g.dispose();
+    geo.dispose();
+  };
+
+  const addDetail = (geo: THREE.BufferGeometry, hex: number, tx = 0, ty = 0, tz = 0, rx = 0) => {
+    const g = geo.clone();
+    if (rx !== 0) g.rotateX(rx);
+    if (tx !== 0 || ty !== 0 || tz !== 0) g.translate(tx, ty, tz);
+    detailParts.push(prepNonIndexed(g, hex));
+    g.dispose();
+    geo.dispose();
+  };
+
+  // --- Low-poly diamond bicycle frame (painted in cyclist's primary color) ---
+  // Top tube, down tube, seat tube, head tube
+  addPaint(createTubeBetween(0, -0.02, 0.22, 0, 0.04, -0.39, 0.02));
+  addPaint(createTubeBetween(0, -0.5, 0.06, 0, -0.08, -0.42, 0.022));
+  addPaint(createTubeBetween(0, -0.5, 0.06, 0, 0.0, 0.24, 0.02));
+  addPaint(createTubeBetween(0, -0.1, -0.42, 0, 0.07, -0.39, 0.024));
+  // Rear triangle (chainstays + seatstays) and front fork blades
+  for (const sx of [-1, 1]) {
+    addPaint(createTubeBetween(sx * 0.04, -0.5, 0.06, sx * 0.06, -0.5, 0.56, 0.013));
+    addPaint(createTubeBetween(sx * 0.03, -0.05, 0.22, sx * 0.06, -0.5, 0.56, 0.012));
+    addPaint(createTubeBetween(sx * 0.04, -0.1, -0.42, sx * 0.06, -0.5, -0.56, 0.015));
+  }
+
+  // --- Bicycle details (seat, handlebars, lights, chainring) ---
+  addDetail(createTubeBetween(0, -0.02, 0.23, 0, 0.05, 0.26, 0.014), 0x2a2f36);
+  addDetail(new THREE.BoxGeometry(0.14, 0.055, 0.26), 0x1b1f24, 0, 0.07, 0.27);
+  addDetail(createTubeBetween(0, 0.05, -0.4, 0, 0.1, -0.45, 0.016), 0x2a2f36);
+  addDetail(createTubeBetween(-0.27, 0.1, -0.45, 0.27, 0.1, -0.45, 0.015), 0x2a2f36);
+  for (const sx of [-1, 1]) {
+    addDetail(createTubeBetween(sx * 0.18, 0.1, -0.45, sx * 0.28, 0.1, -0.45, 0.021), 0x16191d);
+  }
+  // Front white lamp & rear red taillight
+  addDetail(new THREE.BoxGeometry(0.055, 0.045, 0.06), 0xfff8d6, 0, 0.11, -0.49);
+  addDetail(new THREE.BoxGeometry(0.055, 0.045, 0.045), 0xff1744, 0, 0.04, 0.4);
+  // Crankset chainring
+  const chainring = new THREE.CylinderGeometry(0.085, 0.085, 0.018, 10);
+  chainring.rotateZ(Math.PI * 0.5);
+  addDetail(chainring, 0x90a4ae, 0.055, -0.5, 0.06);
+
+  // --- Cyclist rider (leaning forward ~32 deg toward handlebars) ---
+  // Pelvis / cycling shorts
+  addDetail(new THREE.BoxGeometry(0.3, 0.16, 0.24), 0x1e242c, 0, 0.15, 0.24);
+  // Torso jersey (painted) + crisp white back stripe
+  addPaint(new THREE.BoxGeometry(0.34, 0.44, 0.2), 0, 0.36, 0.09, -0.55);
+  addDetail(new THREE.BoxGeometry(0.1, 0.34, 0.03), 0xf4f6f8, 0, 0.38, 0.19, -0.55);
+  // Neck + head + visor/sunglasses + sculpted aero helmet (painted)
+  addDetail(new THREE.CylinderGeometry(0.052, 0.058, 0.09, 8), 0xf0c29e, 0, 0.59, -0.06);
+  addDetail(new THREE.SphereGeometry(0.105, 10, 8), 0xf0c29e, 0, 0.67, -0.1);
+  addDetail(new THREE.BoxGeometry(0.18, 0.045, 0.08), 0x182028, 0, 0.68, -0.19);
+  const helmet = new THREE.SphereGeometry(0.132, 10, 8);
+  helmet.scale(0.95, 0.78, 1.18);
+  addPaint(helmet, 0, 0.74, -0.11);
+
+  // Arms reaching forward to the handlebar grips
+  for (const sx of [-1, 1]) {
+    addPaint(createTubeBetween(sx * 0.19, 0.51, -0.02, sx * 0.23, 0.35, -0.17, 0.048, 0.056, 7));
+    addDetail(createTubeBetween(sx * 0.23, 0.35, -0.17, sx * 0.24, 0.11, -0.44, 0.036, 0.044, 7), 0xf0c29e);
+    addDetail(new THREE.SphereGeometry(0.045, 7, 6), 0x22262b, sx * 0.24, 0.11, -0.45);
+  }
+
+  const paintGeo = mergeGeometries(paintParts, false)!;
+  const detailsGeo = mergeGeometries(detailParts, false)!;
+  for (const g of paintParts) g.dispose();
+  for (const g of detailParts) g.dispose();
+
+  return { paintGeo, detailsGeo };
+}
+
 function buildTemplate(spec: VehicleSpec): MergedVehicleTemplate {
+  if (spec.kind === 'cyclist') {
+    return buildCyclistTemplate();
+  }
   const paintParts: THREE.BufferGeometry[] = [];
   const detailParts: THREE.BufferGeometry[] = [];
 
@@ -236,6 +446,8 @@ function getSharedAssets(): TrafficSharedAssets {
       specular: 0x667788,
       shininess: 65,
     }),
+    cyclistWheelGeo: buildCyclistWheelGeo(),
+    cyclistLegGeo: buildCyclistLegGeo(),
   };
   return sharedAssets;
 }
@@ -261,9 +473,15 @@ export interface TrafficTurnCurve {
 const _tmpEuler = new THREE.Euler(0, 0, 0, 'YXZ');
 const _tmpQuat = new THREE.Quaternion();
 
+const CYCLIST_WHEEL_RADIUS = 0.34;
+const CYCLIST_HIP_Y = 0.1;
+const CYCLIST_HIP_Z = 0.23;
+
 export class TrafficCar {
   public readonly id: number;
   public readonly spec: VehicleSpec;
+  public readonly isCyclist: boolean;
+  public readonly cruiseSpeed: number;
   public readonly mesh: THREE.Group;
   public body: RAPIER.RigidBody;
   public collider: RAPIER.Collider;
@@ -293,9 +511,22 @@ export class TrafficCar {
   public dirX = 0;
   public dirZ = -1;
 
-  constructor(id: number, specIndex: number, physics: PhysicsWorld) {
+  // Optional animated sub-meshes for cyclists
+  private frontWheelMesh: THREE.Mesh | null = null;
+  private rearWheelMesh: THREE.Mesh | null = null;
+  private leftLegMesh: THREE.Mesh | null = null;
+  private rightLegMesh: THREE.Mesh | null = null;
+  private pedalPhase = 0;
+
+  constructor(id: number, specIndexOrKind: number | TrafficVehicleKind, physics: PhysicsWorld) {
     this.id = id;
-    this.spec = SPECS[specIndex % SPECS.length];
+    const kind: TrafficVehicleKind =
+      typeof specIndexOrKind === 'string'
+        ? specIndexOrKind
+        : pickTrafficKindForPoolIndex(specIndexOrKind);
+    this.spec = VEHICLE_SPECS[kind];
+    this.isCyclist = kind === 'cyclist';
+    this.cruiseSpeed = this.isCyclist ? getCyclistCruiseSpeed(id) : 0;
     this.mesh = this.buildMesh(this.spec, id);
     this.mesh.visible = false;
 
@@ -328,11 +559,29 @@ export class TrafficCar {
       shininess: 55,
     });
 
-    // Only 2 draw calls per visible traffic car!
+    // Only 2 draw calls per visible motor vehicle!
     const paintMesh = new THREE.Mesh(tmpl.paintGeo, paintMat);
     paintMesh.castShadow = true;
     const detailsMesh = new THREE.Mesh(tmpl.detailsGeo, assets.detailsMat);
     group.add(paintMesh, detailsMesh);
+
+    if (spec.kind === 'cyclist') {
+      const frontWheel = new THREE.Mesh(assets.cyclistWheelGeo, assets.detailsMat);
+      frontWheel.position.set(0, -0.5, -0.56);
+      const rearWheel = new THREE.Mesh(assets.cyclistWheelGeo, assets.detailsMat);
+      rearWheel.position.set(0, -0.5, 0.56);
+
+      const leftLeg = new THREE.Mesh(assets.cyclistLegGeo, assets.detailsMat);
+      leftLeg.position.set(-0.11, CYCLIST_HIP_Y, CYCLIST_HIP_Z);
+      const rightLeg = new THREE.Mesh(assets.cyclistLegGeo, assets.detailsMat);
+      rightLeg.position.set(0.11, CYCLIST_HIP_Y, CYCLIST_HIP_Z);
+
+      group.add(frontWheel, rearWheel, leftLeg, rightLeg);
+      this.frontWheelMesh = frontWheel;
+      this.rearWheelMesh = rearWheel;
+      this.leftLegMesh = leftLeg;
+      this.rightLegMesh = rightLeg;
+    }
 
     return group;
   }
@@ -356,16 +605,44 @@ export class TrafficCar {
     this.laneOffset = laneOffset;
     this.swerveOffset = 0;
     this.swerveTimer = 0;
-    this.speed = edge.speedLimit * 0.75;
+    this.speed = this.isCyclist
+      ? Math.min(this.cruiseSpeed, edge.speedLimit * 0.6) * 0.85
+      : edge.speedLimit * 0.75;
     this.stuckTimer = 0;
     this.nearMissCooldown = 0;
     this.turn = null;
     this.roundaboutEntryEdgeId = null;
     this.roundaboutSteps = 0;
+    this.pedalPhase = (this.id * 1.7) % (Math.PI * 2);
 
     this.body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
     this.setKinematicPose(x, y, z, yaw);
+    this.updateAnimation(0);
     this.mesh.visible = true;
+  }
+
+  /** Animates cyclist wheel spin and antiphase pedaling legs proportional to ground speed. */
+  updateAnimation(dt: number): void {
+    if (!this.isCyclist || this.knocked) return;
+    if (this.speed > 0.15 && dt > 0) {
+      const wheelStep = (this.speed / CYCLIST_WHEEL_RADIUS) * dt;
+      if (this.frontWheelMesh) this.frontWheelMesh.rotation.x -= wheelStep;
+      if (this.rearWheelMesh) this.rearWheelMesh.rotation.x -= wheelStep;
+      this.pedalPhase = (this.pedalPhase + wheelStep * 0.55) % (Math.PI * 2);
+    }
+    const amp = this.speed > 0.15 ? 1 : 0.25;
+    const lp = this.pedalPhase;
+    const rp = this.pedalPhase + Math.PI;
+    if (this.leftLegMesh) {
+      this.leftLegMesh.position.y = CYCLIST_HIP_Y + Math.sin(lp) * 0.075 * amp;
+      this.leftLegMesh.position.z = CYCLIST_HIP_Z + Math.cos(lp) * 0.045 * amp;
+      this.leftLegMesh.rotation.x = Math.cos(lp) * 0.34 * amp;
+    }
+    if (this.rightLegMesh) {
+      this.rightLegMesh.position.y = CYCLIST_HIP_Y + Math.sin(rp) * 0.075 * amp;
+      this.rightLegMesh.position.z = CYCLIST_HIP_Z + Math.cos(rp) * 0.045 * amp;
+      this.rightLegMesh.rotation.x = Math.cos(rp) * 0.34 * amp;
+    }
   }
 
   setKinematicPose(x: number, y: number, z: number, yaw: number, pitch = 0): void {
@@ -408,7 +685,8 @@ export class TrafficCar {
       this.body.setLinearDamping(0.35);
       this.body.setAngularDamping(0.45);
     }
-    const massScale = Math.min(1.2, 1300 / this.spec.mass);
+    const maxScale = this.isCyclist ? 1.4 : 1.2;
+    const massScale = Math.min(maxScale, 1300 / this.spec.mass);
     this.body.setLinvel(
       {
         x: impX * massScale,

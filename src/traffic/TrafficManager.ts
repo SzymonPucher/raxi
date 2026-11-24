@@ -5,12 +5,46 @@ import { PhysicsWorld } from '../physics/PhysicsWorld';
 import { ArcadeVehicle } from '../vehicle/ArcadeVehicle';
 import { MapDefinition } from '../world/mapData';
 import { RoadEdge } from '../world/RoadGraph';
-import { TrafficCar, TrafficTurnCurve } from './TrafficCar';
+import { TrafficCar, TrafficTurnCurve, pickTrafficKindForPoolIndex } from './TrafficCar';
 import { TrafficLights } from './TrafficLights';
 
 export interface NearMissHit {
   relSpeed: number;
   distance: number;
+}
+
+/** Dedicated cyclist pool size added on top of BALANCE.trafficMaxCount so cyclists never crowd out cars. */
+export const CYCLIST_POOL_COUNT = 10;
+
+/**
+ * Computes the right-edge lateral lane offset for a cyclist on a road edge:
+ * always farther to the right (closer to the curb) than regular car lanes while staying on asphalt.
+ */
+export function computeCyclistLaneOffset(
+  edge: Pick<RoadEdge, 'width' | 'lanesPerDir' | 'isOneWay' | 'isRoundabout'>
+): number {
+  const halfW = edge.width * 0.5;
+  const maxLane = Math.max(1, edge.lanesPerDir);
+  const laneW = halfW / maxLane;
+  const curbMargin = Math.min(0.85, Math.max(0.45, laneW * 0.25));
+  return Math.max(0.5, halfW - curbMargin);
+}
+
+/** Computes a regular motor vehicle's lateral lane offset for a given lane index. */
+export function computeCarLaneOffset(
+  edge: Pick<RoadEdge, 'width' | 'lanesPerDir' | 'isOneWay'>,
+  laneIdx: number
+): number {
+  const maxLane = Math.max(1, edge.lanesPerDir);
+  const clampedIdx = Math.max(0, Math.min(maxLane - 1, laneIdx));
+  const laneW = (edge.width * 0.5) / maxLane;
+  if (edge.isOneWay && maxLane === 1) {
+    return 0;
+  }
+  if (edge.isOneWay && maxLane > 1) {
+    return (clampedIdx - (maxLane - 1) * 0.5) * laneW;
+  }
+  return (clampedIdx + 0.5) * laneW;
 }
 
 function getTurnMargin(edgeLength: number, isRoundabout = false): number {
@@ -67,9 +101,13 @@ function computeBezierArcLength(
 export class TrafficManager {
   public readonly group = new THREE.Group();
   public readonly cars: TrafficCar[] = [];
+  public readonly cyclists: TrafficCar[] = [];
+  private readonly allTraffic: TrafficCar[] = [];
   private readonly carById = new Map<number, TrafficCar>();
   private readonly candidateEdges: RoadEdge[];
+  private readonly cyclistCandidateEdges: RoadEdge[];
   private spawnCooldown = 0;
+  private cyclistSpawnCooldown = 0;
 
   constructor(
     private readonly map: MapDefinition,
@@ -77,19 +115,32 @@ export class TrafficManager {
     private readonly lights: TrafficLights
   ) {
     this.candidateEdges = map.graph.edges.filter((e) => !e.isShortcut && e.length >= 45);
+    const nonHighwayEdges = this.candidateEdges.filter((e) => e.roadType !== 'highway');
+    this.cyclistCandidateEdges = nonHighwayEdges.length > 0 ? nonHighwayEdges : this.candidateEdges;
+
     for (let i = 0; i < BALANCE.trafficMaxCount; i++) {
-      const car = new TrafficCar(i + 1, i, physics);
+      const car = new TrafficCar(i + 1, pickTrafficKindForPoolIndex(i), physics);
       this.cars.push(car);
+      this.allTraffic.push(car);
       this.carById.set(car.id, car);
       this.group.add(car.mesh);
+    }
+
+    for (let i = 0; i < CYCLIST_POOL_COUNT; i++) {
+      const cyclist = new TrafficCar(BALANCE.trafficMaxCount + i + 1, 'cyclist', physics);
+      this.cyclists.push(cyclist);
+      this.allTraffic.push(cyclist);
+      this.carById.set(cyclist.id, cyclist);
+      this.group.add(cyclist.mesh);
     }
   }
 
   reset(): void {
-    for (const c of this.cars) {
+    for (const c of this.allTraffic) {
       c.despawn();
     }
     this.spawnCooldown = 0;
+    this.cyclistSpawnCooldown = 0;
   }
 
   getCarById(id: number): TrafficCar | undefined {
@@ -109,14 +160,36 @@ export class TrafficManager {
     const pSpeed = player.speed;
     const lookahead = Math.min(2.2, pSpeed * 0.045);
 
-    for (let i = 0; i < this.cars.length; i++) {
-      const c = this.cars[i];
+    for (let i = 0; i < this.allTraffic.length; i++) {
+      const c = this.allTraffic[i];
       if (!c.active || c.knocked) continue;
       if (Math.abs(c.y - py) > 2.6) continue;
-      const reach = (c.spec.l + 4.4) * 0.5 + 0.9 + lookahead;
       const dx = c.x - px;
       const dz = c.z - pz;
-      if (dx * dx + dz * dz <= reach * reach) {
+      const distSq = dx * dx + dz * dz;
+
+      if (c.isCyclist) {
+        // Keep cyclists upright during clean near-misses; wake dynamic when impact is imminent
+        if (distSq <= 2.3 * 2.3) {
+          c.wakeDynamicForCollision();
+          continue;
+        }
+        const vx = player.velocity.x - c.dirX * c.speed;
+        const vz = player.velocity.z - c.dirZ * c.speed;
+        const vSq = vx * vx + vz * vz;
+        if (vSq > 0.25) {
+          const tClosest = Math.max(0, Math.min(0.15, (dx * vx + dz * vz) / vSq));
+          const cx = dx - vx * tClosest;
+          const cz = dz - vz * tClosest;
+          if (cx * cx + cz * cz <= 1.85 * 1.85) {
+            c.wakeDynamicForCollision();
+          }
+        }
+        continue;
+      }
+
+      const reach = (c.spec.l + 4.4) * 0.5 + 0.9 + lookahead;
+      if (distSq <= reach * reach) {
         c.wakeDynamicForCollision();
       }
     }
@@ -135,7 +208,7 @@ export class TrafficManager {
   pushTrafficAround(x: number, z: number, radius: number, force: number): number {
     let count = 0;
     const r2 = radius * radius;
-    for (const c of this.cars) {
+    for (const c of this.allTraffic) {
       if (!c.active) continue;
       const dx = c.x - x;
       const dz = c.z - z;
@@ -152,11 +225,12 @@ export class TrafficManager {
     return count;
   }
 
-  /** Horn reaction (§7.1 + Loud Horn #10): cars ahead swerve aside. */
+  /** Horn reaction (§7.1 + Loud Horn #10): cars & cyclists ahead swerve aside. */
   reactToHorn(px: number, pz: number, fwdX: number, fwdZ: number, loud: boolean): void {
     const range = loud ? 58 : 30;
-    const swerveMag = loud ? 4.4 : 2.1;
-    for (const c of this.cars) {
+    const carSwerveMag = loud ? 4.4 : 2.1;
+    const cyclistSwerveMag = loud ? 1.05 : 0.6;
+    for (const c of this.allTraffic) {
       if (!c.active || c.knocked) continue;
       const dx = c.x - px;
       const dz = c.z - pz;
@@ -164,7 +238,7 @@ export class TrafficManager {
       if (dist > range || dist < 1) continue;
       const dot = (dx * fwdX + dz * fwdZ) / dist;
       if (dot > 0.35) {
-        c.swerveOffset = swerveMag;
+        c.swerveOffset = c.isCyclist ? cyclistSwerveMag : carSwerveMag;
         c.swerveTimer = loud ? 3.5 : 2.0;
       }
     }
@@ -187,7 +261,7 @@ export class TrafficManager {
       if (c.active) activeCount++;
     }
 
-    // Spawn cars up to targetCount
+    // Spawn motor vehicles up to targetCount
     this.spawnCooldown -= dt;
     if (activeCount < clampedTarget && this.spawnCooldown <= 0) {
       const toSpawn = Math.min(3, clampedTarget - activeCount);
@@ -197,10 +271,31 @@ export class TrafficManager {
       this.spawnCooldown = 0.25;
     }
 
+    // Spawn cyclists independently so they never crowd out regular traffic cars
+    let activeCyclistCount = 0;
+    for (const c of this.cyclists) {
+      if (c.active) activeCyclistCount++;
+    }
+    const targetCyclists = Math.max(
+      4,
+      Math.min(
+        this.cyclists.length,
+        Math.round((clampedTarget / BALANCE.trafficMaxCount) * this.cyclists.length)
+      )
+    );
+    this.cyclistSpawnCooldown -= dt;
+    if (activeCyclistCount < targetCyclists && this.cyclistSpawnCooldown <= 0) {
+      const toSpawn = Math.min(2, targetCyclists - activeCyclistCount);
+      for (let s = 0; s < toSpawn; s++) {
+        this.trySpawnCyclist(px, pz, rng);
+      }
+      this.cyclistSpawnCooldown = 0.35;
+    }
+
     const despawnSq = BALANCE.trafficDespawnDist * BALANCE.trafficDespawnDist;
 
-    for (let i = 0; i < this.cars.length; i++) {
-      const c = this.cars[i];
+    for (let i = 0; i < this.allTraffic.length; i++) {
+      const c = this.allTraffic[i];
       if (!c.active) continue;
 
       if (c.nearMissCooldown > 0) c.nearMissCooldown -= dt;
@@ -237,17 +332,23 @@ export class TrafficManager {
       // Compute current heading basis for braking/yielding checks
       let dirX = c.dirX;
       let dirZ = c.dirZ;
-      let desiredSpeed = 12;
+      let desiredSpeed = c.isCyclist ? c.cruiseSpeed : 12;
       let waitingAtRedLight = false;
 
       if (c.turn) {
-        desiredSpeed = c.turn.isSharpTurn
-          ? Math.min(c.turn.nextEdge.speedLimit * 0.7, 9.0)
-          : c.turn.nextEdge.speedLimit * 0.85;
+        if (c.isCyclist) {
+          desiredSpeed = c.turn.isSharpTurn
+            ? Math.min(c.cruiseSpeed * 0.75, 4.8)
+            : Math.min(c.cruiseSpeed, c.turn.nextEdge.speedLimit * 0.6);
+        } else {
+          desiredSpeed = c.turn.isSharpTurn
+            ? Math.min(c.turn.nextEdge.speedLimit * 0.7, 9.0)
+            : c.turn.nextEdge.speedLimit * 0.85;
+        }
       } else {
         const edge = c.edge;
         if (!edge || edge.blocked) {
-          // Only despawn blocked-road cars if out of immediate sight, else U-turn cleanly
+          // Only despawn blocked-road traffic if out of immediate sight, else U-turn cleanly
           if (distPlayerSq > 50 * 50 || !edge) {
             c.despawn();
             continue;
@@ -265,7 +366,9 @@ export class TrafficManager {
         dirX = dx / len;
         dirZ = dz / len;
 
-        desiredSpeed = curEdge.speedLimit * 0.85;
+        desiredSpeed = c.isCyclist
+          ? Math.min(c.cruiseSpeed, curEdge.speedLimit * 0.6)
+          : curEdge.speedLimit * 0.85;
         const turnMargin = getTurnMargin(len, curEdge.isRoundabout);
         const distToStopLine = len - turnMargin - c.progress;
 
@@ -276,9 +379,9 @@ export class TrafficManager {
           if (rbEdge?.edge.roundaboutId) {
             const rbId = rbEdge.edge.roundaboutId;
             let mustYield = false;
-            for (let j = 0; j < this.cars.length; j++) {
+            for (let j = 0; j < this.allTraffic.length; j++) {
               if (i === j) continue;
-              const o = this.cars[j];
+              const o = this.allTraffic[j];
               if (!o.active || o.knocked) continue;
               const inSameRb =
                 o.edge?.roundaboutId === rbId || o.turn?.nextEdge.roundaboutId === rbId;
@@ -319,21 +422,24 @@ export class TrafficManager {
       const rightX = -dirZ;
       const rightZ = dirX;
 
-      // Brake for another traffic car directly ahead along current heading
-      for (let j = 0; j < this.cars.length; j++) {
+      // Brake for another traffic vehicle directly ahead along current heading
+      const lookAheadDist = c.isCyclist ? 10 : 16;
+      for (let j = 0; j < this.allTraffic.length; j++) {
         if (i === j) continue;
-        const o = this.cars[j];
+        const o = this.allTraffic[j];
         if (!o.active || o.knocked) continue;
         const ox = o.x - c.x;
         const oz = o.z - c.z;
         const ahead = ox * dirX + oz * dirZ;
-        if (ahead > 1.5 && ahead < 16) {
+        if (ahead > 1.2 && ahead < lookAheadDist) {
           const lat = Math.abs(ox * rightX + oz * rightZ);
-          if (lat < 2.25) {
-            // Check if the other car is moving in roughly the same or crossing direction
+          const latLimit =
+            c.isCyclist || o.isCyclist ? (c.spec.w + o.spec.w) * 0.5 + 0.35 : 2.25;
+          if (lat < latLimit) {
+            // Check if the other vehicle is moving in roughly the same or crossing direction
             const headDot = o.dirX * dirX + o.dirZ * dirZ;
             if (headDot > -0.4) {
-              const safeGap = (c.spec.l + o.spec.l) * 0.5 + 2.4;
+              const safeGap = (c.spec.l + o.spec.l) * 0.5 + (c.isCyclist ? 1.8 : 2.4);
               desiredSpeed = Math.min(desiredSpeed, Math.max(0, (ahead - safeGap) * 1.5));
             }
           }
@@ -346,13 +452,15 @@ export class TrafficManager {
       const pAhead = pdx * dirX + pdz * dirZ;
       if (pAhead > 1.5 && pAhead < 14) {
         const pLat = Math.abs(pdx * rightX + pdz * rightZ);
-        if (pLat < 2.3) {
+        if (pLat < (c.isCyclist ? 1.7 : 2.3)) {
           desiredSpeed = Math.min(desiredSpeed, 0);
         }
       }
 
       // Smooth accel / braking
-      const rate = desiredSpeed > c.speed ? 6.8 : 15.0;
+      const accelRate = c.isCyclist ? 4.2 : 6.8;
+      const brakeRate = c.isCyclist ? 11.0 : 15.0;
+      const rate = desiredSpeed > c.speed ? accelRate : brakeRate;
       c.speed += Math.sign(desiredSpeed - c.speed) * Math.min(Math.abs(desiredSpeed - c.speed), rate * dt);
 
       // Stuck timeout: NEVER despawn while waiting at a red light, and only despawn gridlocked cars far from player!
@@ -473,6 +581,7 @@ export class TrafficManager {
 
       const slopePitch = this.map.heightMap.sampleSlope(nx, nz, moveDirX, moveDirZ);
       c.setKinematicPose(nx, ny, nz, nyaw, slopePitch);
+      c.updateAnimation(dt);
 
       // Near miss check (§9.4)
       if (detectNearMisses && c.nearMissCooldown <= 0 && !player.isGhost) {
@@ -561,7 +670,14 @@ export class TrafficManager {
       nextForward = pick.edge.from === toN.id;
     } else {
       // Weight choices nicely: ~50% straight when available, ~50% left/right turns
-      const weights = options.map((opt) => {
+      // Cyclists prefer non-highway streets when available
+      const candidateOptions = c.isCyclist
+        ? (() => {
+            const nonHighway = options.filter((o) => o.edge.roadType !== 'highway');
+            return nonHighway.length > 0 ? nonHighway : options;
+          })()
+        : options;
+      const weights = candidateOptions.map((opt) => {
         const destN = this.map.graph.getNode(opt.to)!;
         const ndx = destN.x - toN.x;
         const ndz = destN.z - toN.z;
@@ -569,7 +685,7 @@ export class TrafficManager {
         const dot = (ndx / nlen) * d0x + (ndz / nlen) * d0z;
         return dot > 0.7 ? 1.8 : 1.0;
       });
-      const pick = rng.weightedPick(options, weights);
+      const pick = rng.weightedPick(candidateOptions, weights);
       nextEdge = pick.edge;
       nextForward = pick.edge.from === toN.id;
       if (nextEdge.isRoundabout) {
@@ -590,9 +706,11 @@ export class TrafficManager {
 
     const maxLane = Math.max(1, nextEdge.lanesPerDir);
     const laneW = (nextEdge.width * 0.5) / maxLane;
-    // Keep same lane index when continuing straight; center on 1-lane one-way / roundabout rings
+    // Cyclists stay near the right edge of the lane; cars keep same lane index
     let nextLaneOffset: number;
-    if (nextEdge.isOneWay && maxLane === 1) {
+    if (c.isCyclist) {
+      nextLaneOffset = computeCyclistLaneOffset(nextEdge);
+    } else if (nextEdge.isOneWay && maxLane === 1) {
       nextLaneOffset = 0;
     } else if (nextEdge.isOneWay && maxLane > 1) {
       const idx = Math.min(maxLane - 1, Math.floor(Math.abs(c.laneOffset) / Math.max(1.5, laneW)));
@@ -657,8 +775,9 @@ export class TrafficManager {
   }
 
   private trySpawnCar(px: number, pz: number, rng: Rng): void {
-    const slot = this.cars.find((c) => !c.active);
-    if (!slot) return;
+    const inactive = this.cars.filter((c) => !c.active);
+    if (inactive.length === 0) return;
+    const slot = rng.pick(inactive);
 
     for (let attempt = 0; attempt < 16; attempt++) {
       const edge = rng.pick(this.candidateEdges);
@@ -681,15 +800,61 @@ export class TrafficManager {
       const tMax = Math.max(tMin + 0.05, 1 - (margin + 6) / len);
       const t = rng.range(tMin, tMax);
       const maxLane = Math.max(1, edge.lanesPerDir);
-      const laneW = (edge.width * 0.5) / maxLane;
-      const laneOffset = edge.isOneWay && maxLane === 1 ? 0 : (rng.int(0, maxLane - 1) + 0.5) * laneW;
+      const laneOffset = computeCarLaneOffset(edge, rng.int(0, maxLane - 1));
       const dirX = dx / len;
       const dirZ = dz / len;
       const sx = fromN.x + dx * t - dirZ * laneOffset;
       const sz = fromN.z + dz * t + dirX * laneOffset;
       const sy = this.map.heightMap.sample(sx, sz) + slot.spec.h * 0.5 + 0.04;
 
-      if (this.cars.some((o) => o.active && Math.hypot(o.x - sx, o.z - sz) < 13)) continue;
+      if (
+        this.allTraffic.some(
+          (o) => o.active && Math.hypot(o.x - sx, o.z - sz) < (o.isCyclist ? 8 : 13)
+        )
+      ) {
+        continue;
+      }
+
+      slot.spawnOnEdge(edge, forward, t * len, laneOffset, sx, sy, sz, Math.atan2(-dirX, -dirZ));
+      return;
+    }
+  }
+
+  private trySpawnCyclist(px: number, pz: number, rng: Rng): void {
+    const inactive = this.cyclists.filter((c) => !c.active);
+    if (inactive.length === 0) return;
+    const slot = rng.pick(inactive);
+
+    for (let attempt = 0; attempt < 16; attempt++) {
+      const edge = rng.pick(this.cyclistCandidateEdges);
+      if (edge.blocked) continue;
+      const a = this.map.graph.getNode(edge.from)!;
+      const b = this.map.graph.getNode(edge.to)!;
+      const mx = (a.x + b.x) * 0.5;
+      const mz = (a.z + b.z) * 0.5;
+      const d = Math.hypot(mx - px, mz - pz);
+      if (d < BALANCE.trafficSpawnMin || d > BALANCE.trafficSpawnMax) continue;
+
+      const forward = edge.isOneWay ? true : rng.chance(0.5);
+      const fromN = forward ? a : b;
+      const toN = forward ? b : a;
+      const dx = toN.x - fromN.x;
+      const dz = toN.z - fromN.z;
+      const len = Math.max(1, Math.hypot(dx, dz));
+      const margin = getTurnMargin(len, edge.isRoundabout);
+      const tMin = Math.min(0.4, (margin + 4) / len);
+      const tMax = Math.max(tMin + 0.05, 1 - (margin + 6) / len);
+      const t = rng.range(tMin, tMax);
+      const laneOffset = computeCyclistLaneOffset(edge);
+      const dirX = dx / len;
+      const dirZ = dz / len;
+      const sx = fromN.x + dx * t - dirZ * laneOffset;
+      const sz = fromN.z + dz * t + dirX * laneOffset;
+      const sy = this.map.heightMap.sample(sx, sz) + slot.spec.h * 0.5 + 0.04;
+
+      if (this.allTraffic.some((o) => o.active && Math.hypot(o.x - sx, o.z - sz) < 9)) {
+        continue;
+      }
 
       slot.spawnOnEdge(edge, forward, t * len, laneOffset, sx, sy, sz, Math.atan2(-dirX, -dirZ));
       return;
