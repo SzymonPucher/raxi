@@ -947,9 +947,13 @@ export class Game {
       }
       this.shift.pedestriansExploded += 1;
 
-      // Damage −12% (×0.25 with Blast Shield #33)
+      // Damage −3% max (×0.25 with Blast Shield #33)
       const blastMult = this.powerManager.has('blast_shield') ? 0.25 : 1.0;
-      this.applyCarDamage(BALANCE.damagePedExplosion * blastMult, 'pedestrian');
+      this.applyCarDamage(
+        BALANCE.damagePedExplosion * blastMult,
+        'pedestrian',
+        BALANCE.damagePedExplosion
+      );
 
       if (!inBreak) {
         const pen = this.shift.safety.recordPedestrianExplosion(strict);
@@ -982,9 +986,9 @@ export class Game {
     // Pedestrian near-miss scares no longer reduce safety score (only collisions count)
   }
 
-  private applyCarDamage(rawPct: number, source: string): void {
+  private applyCarDamage(rawPct: number, source: string, maxPct?: number): void {
     const mult = this.stats.get('car.damageTaken');
-    const dmg = this.shift.condition.applyDamage(rawPct, mult);
+    const dmg = this.shift.condition.applyDamage(rawPct, mult, maxPct);
     this.vehicleStats.perfMult = this.shift.condition.performanceMult;
     this.events.emit('car:damaged', {
       amount: dmg,

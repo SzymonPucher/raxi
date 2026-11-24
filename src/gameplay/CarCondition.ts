@@ -28,8 +28,11 @@ export class CarCondition {
     return BALANCE.carMinPerfMult + (1.0 - BALANCE.carMinPerfMult) * t;
   }
 
-  applyDamage(rawPercent: number, damageTakenMult = 1.0): number {
-    const actual = Math.max(0, rawPercent * Math.max(0, damageTakenMult));
+  applyDamage(rawPercent: number, damageTakenMult = 1.0, maxPercent?: number): number {
+    let actual = Math.max(0, rawPercent * Math.max(0, damageTakenMult));
+    if (maxPercent !== undefined) {
+      actual = Math.min(actual, Math.max(0, maxPercent));
+    }
     const prev = this._condition;
     this._condition = Math.max(0, this._condition - actual);
     return prev - this._condition;

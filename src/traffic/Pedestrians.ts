@@ -25,6 +25,7 @@ interface Pedestrian {
   walkDirX: number;
   walkDirZ: number;
   walkSpeed: number;
+  stopped: boolean;
   diving: boolean;
   diveTimer: number;
   scareCooldown: number;
@@ -69,6 +70,7 @@ export interface PedestrianSnapshot {
   z: number;
   vx: number;
   vz: number;
+  stopped: boolean;
   diving: boolean;
   diveTimer: number;
 }
@@ -294,6 +296,7 @@ export class PedestriansManager {
         walkDirX: 1,
         walkDirZ: 0,
         walkSpeed: 1.5,
+        stopped: false,
         diving: false,
         diveTimer: 0,
         scareCooldown: 0,
@@ -484,8 +487,8 @@ export class PedestriansManager {
 
   private updatePedInstance(i: number, p: Pedestrian): void {
     const yaw = p.diving ? Math.atan2(p.vx, p.vz) : Math.atan2(p.walkDirX, p.walkDirZ);
-    const swing = p.diving ? 0.95 : Math.sin(p.walkPhase) * 0.55;
-    const bob = p.diving ? 0.35 : Math.abs(Math.sin(p.walkPhase)) * 0.05;
+    const swing = p.diving ? 0.95 : p.stopped ? 0 : Math.sin(p.walkPhase) * 0.55;
+    const bob = p.diving ? 0.35 : p.stopped ? 0 : Math.abs(Math.sin(p.walkPhase)) * 0.05;
 
     this.rootObj.position.set(p.x, p.y + bob, p.z);
     this.rootObj.rotation.set(p.diving ? 1.15 : 0, yaw, 0);
@@ -538,6 +541,7 @@ export class PedestriansManager {
     for (let i = 0; i < this.peds.length; i++) {
       this.peds[i].active = false;
       this.peds[i].wasVisible = false;
+      this.peds[i].stopped = false;
       this.peds[i].chainTimer = 0;
       this.peds[i].respawnTimer = 0;
       this.hidePedInstance(i);
@@ -563,6 +567,7 @@ export class PedestriansManager {
         z: p.z,
         vx: p.vx,
         vz: p.vz,
+        stopped: p.stopped,
         diving: p.diving,
         diveTimer: p.diveTimer,
       });
@@ -588,6 +593,8 @@ export class PedestriansManager {
     const py = player.currPosition.y;
     const pz = player.currPosition.z;
     const pSpd = player.speed;
+    const pSpdKmh = Math.abs(pSpd) * 3.6;
+    const carIsSlow = pSpdKmh < BALANCE.pedYieldSpeedKmh;
     const fwdX = player.forwardDir.x;
     const fwdZ = player.forwardDir.z;
 
@@ -670,6 +677,7 @@ export class PedestriansManager {
           const cross = fwdX * dz - fwdZ * dx;
           const sideSign = cross >= 0 ? 1 : -1;
           p.diving = true;
+          p.stopped = false;
           p.diveTimer = BALANCE.pedDiveDuration;
           p.vx = -fwdZ * sideSign * BALANCE.pedDiveSpeed;
           p.vz = fwdX * sideSign * BALANCE.pedDiveSpeed;
@@ -677,31 +685,52 @@ export class PedestriansManager {
       }
 
       if (p.diving) {
+        p.stopped = false;
         p.x += p.vx * dt;
         p.z += p.vz * dt;
         p.diveTimer -= dt;
         if (p.diveTimer <= 0) p.diving = false;
       } else {
-        p.x += p.walkDirX * p.walkSpeed * dt;
-        p.z += p.walkDirZ * p.walkSpeed * dt;
-        p.walkPhase += dt * p.walkSpeed * 4.2;
+        const nextX = p.x + p.walkDirX * p.walkSpeed * dt;
+        const nextZ = p.z + p.walkDirZ * p.walkSpeed * dt;
+        const nextDist = Math.hypot(nextX - px, nextZ - pz);
+        const walkingIntoCar = nextDist < dist && nextDist < BALANCE.pedStopRadius;
+        const shouldStopForCar =
+          !player.isGhost &&
+          Math.abs(py - p.y) < 2.2 &&
+          (walkingIntoCar || (carIsSlow && dist < BALANCE.pedStopRadius));
 
-        // Keep pedestrians patrolling within their sidewalk/hotspot cluster instead of wandering away
-        const adx = p.x - p.anchorX;
-        const adz = p.z - p.anchorZ;
-        if (
-          adx * adx + adz * adz > p.patrolRadius * p.patrolRadius &&
-          adx * p.walkDirX + adz * p.walkDirZ > 0
-        ) {
-          p.walkDirX = -p.walkDirX;
-          p.walkDirZ = -p.walkDirZ;
+        if (shouldStopForCar) {
+          p.stopped = true;
+          p.vx = 0;
+          p.vz = 0;
+        } else {
+          p.stopped = false;
+          p.x = nextX;
+          p.z = nextZ;
+          p.vx = p.walkDirX * p.walkSpeed;
+          p.vz = p.walkDirZ * p.walkSpeed;
+          p.walkPhase += dt * p.walkSpeed * 4.2;
+
+          // Keep pedestrians patrolling within their sidewalk/hotspot cluster instead of wandering away
+          const adx = p.x - p.anchorX;
+          const adz = p.z - p.anchorZ;
+          if (
+            adx * adx + adz * adz > p.patrolRadius * p.patrolRadius &&
+            adx * p.walkDirX + adz * p.walkDirZ > 0
+          ) {
+            p.walkDirX = -p.walkDirX;
+            p.walkDirZ = -p.walkDirZ;
+          }
         }
       }
       p.y = this.map.heightMap.sample(p.x, p.z);
 
-      // Player overlap -> cartoon explosion!
+      const postDist = Math.hypot(p.x - px, p.z - pz);
+
+      // Player overlap -> cartoon explosion (only when car is moving >= 5 km/h)
       if (!player.isGhost && Math.abs(py - p.y) < 2.2) {
-        if (dist < 1.85) {
+        if (postDist < 1.85 && !carIsSlow) {
           p.active = false;
           p.wasVisible = false;
           activeCount--;
@@ -711,9 +740,9 @@ export class PedestriansManager {
           this.hidePedInstance(i);
           anyMatrixChanged = true;
           continue;
-        } else if (dist < 2.85 && pSpd > 9 && p.scareCooldown <= 0) {
+        } else if (postDist < 2.85 && pSpd > 9 && p.scareCooldown <= 0) {
           p.scareCooldown = 3.0;
-          out.scares.push(dist - 1.85);
+          out.scares.push(postDist - 1.85);
         }
       }
 
@@ -831,6 +860,7 @@ export class PedestriansManager {
       p.walkDirX = dirX;
       p.walkDirZ = dirZ;
       p.walkSpeed = rng.range(1.2, 2.0);
+      p.stopped = false;
       p.diving = false;
       p.chainTimer = 0;
       return true;

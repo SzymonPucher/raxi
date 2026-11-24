@@ -4,7 +4,13 @@ import { CarCondition } from '../src/gameplay/CarCondition';
 import { Wallet } from '../src/gameplay/Wallet';
 import { PowerManager } from '../src/powers/PowerManager';
 import { StatSystem } from '../src/powers/StatSystem';
-import { Shop, SHOP_SPECIAL_PRICE_CHANCE, SHOP_SPECIAL_PRICE_MULT } from '../src/shop/Shop';
+import {
+  Shop,
+  SHOP_SPECIAL_PRICE_CHANCE,
+  SHOP_SPECIAL_PRICE_GREETINGS,
+  SHOP_SPECIAL_PRICE_MULT,
+} from '../src/shop/Shop';
+import { buildSpecialPriceBannerHtml } from '../src/ui/screens/Screens';
 
 describe('Shop & ShopStock (§8.7, M7 acceptance)', () => {
   it('returns identical stock on repeat visits before next delivery and regenerates after delivery', () => {
@@ -67,17 +73,29 @@ describe('Shop & ShopStock (§8.7, M7 acceptance)', () => {
     const pm = new PowerManager(stats);
     const shop = new Shop();
 
-    // Check ~33% activation rate across 300 seeds
+    // Check ~33% activation rate and random greeting variety across 300 seeds
+    expect(SHOP_SPECIAL_PRICE_GREETINGS.length).toBeGreaterThanOrEqual(5);
     let hits = 0;
+    const seenGreetings = new Set<string>();
     for (let seed = 1; seed <= 300; seed++) {
-      if (shop.rollSpecialPrice(new Rng(seed))) hits++;
+      const active = shop.rollSpecialPrice(new Rng(seed));
+      if (active) {
+        hits++;
+        expect(shop.specialPriceGreeting).not.toBeNull();
+        expect(SHOP_SPECIAL_PRICE_GREETINGS).toContain(shop.specialPriceGreeting);
+        seenGreetings.add(shop.specialPriceGreeting!);
+      } else {
+        expect(shop.specialPriceGreeting).toBeNull();
+      }
     }
     expect(hits).toBeGreaterThan(70);
     expect(hits).toBeLessThan(130);
+    expect(seenGreetings.size).toBe(SHOP_SPECIAL_PRICE_GREETINGS.length);
 
     // Compare normal vs special price (+50% on offers, repair, cleanse, reroll)
     shop.reset();
     expect(shop.specialPriceActive).toBe(false);
+    expect(shop.specialPriceGreeting).toBeNull();
 
     const stock = shop.getStock({ runSeed: 999, deliveryCount: 0, tier: 1, powerManager: pm });
     const baseOffer = stock.offers[0];
@@ -107,5 +125,13 @@ describe('Shop & ShopStock (§8.7, M7 acceptance)', () => {
 
     shop.reset();
     expect(shop.specialPriceActive).toBe(false);
+    expect(buildSpecialPriceBannerHtml(shop)).toBe('');
+
+    shop.specialPriceActive = true;
+    shop.specialPriceGreeting = SHOP_SPECIAL_PRICE_GREETINGS[2];
+    const bannerHtml = buildSpecialPriceBannerHtml(shop);
+    expect(bannerHtml).toContain('shop-special-portrait');
+    expect(bannerHtml).toContain('garage-owner.svg');
+    expect(bannerHtml).toContain(SHOP_SPECIAL_PRICE_GREETINGS[2]);
   });
 });

@@ -1,3 +1,4 @@
+import garageOwnerUrl from '../../assets/garage-owner.svg';
 import { BALANCE } from '../../core/config/balance';
 import { ShiftSummary } from '../../gameplay/Shift';
 import { DraftOffer } from '../../powers/Draft';
@@ -11,6 +12,21 @@ import { AVAILABLE_MAPS, MapId, getMapMeta } from '../../world/MapRegistry';
 
 export function getMapIcon(mapId: MapId): string {
   return mapId === 'mikolow' ? '🇵🇱' : '🏙️';
+}
+
+export function buildSpecialPriceBannerHtml(shop: Shop): string {
+  if (!shop.specialPriceActive) return '';
+  const greeting = shop.getSpecialPriceGreeting();
+  return `<div class="shop-special-banner">
+        <img class="shop-special-portrait" src="${garageOwnerUrl}" alt="Uśmiechnięty znajomy właściciel garażu z długim nosem" />
+        <div class="shop-special-body">
+          <div class="shop-special-header">
+            <span class="shop-special-name">Znajomy właściciel z długim nosem</span>
+            <span class="shop-special-badge">+50% „PO ZNAJOMOŚCI”</span>
+          </div>
+          <div class="shop-special-quote">${greeting}</div>
+        </div>
+      </div>`;
 }
 
 export interface ScreenCallbacks {
@@ -142,7 +158,7 @@ export function renderHowToPlay(container: HTMLElement, cb: ScreenCallbacks): HT
           <p>Every <b>3 deliveries</b> triggers a <b>Power Draft</b> (pick 1 of 3 roguelike powers). When the shift timer hits 0, your run ends.</p>
           <h3 style="color:var(--taxi-yellow);margin:12px 0 6px">👵 PASSENGER TYPES</h3>
           <p>Each passenger values Speed, Style, and Safety differently! <b>Grandma</b> cares most about safety — avoid collisions for a clean trip, bonus time &amp; extra tips!</p>
-          <p>Watch out for <b>pedestrians</b>: hitting them triggers a cartoon explosion (−12% car condition & big safety hit!).</p>
+          <p>Watch out for <b>pedestrians</b>: hitting them triggers a cartoon explosion (−3% car condition & big safety hit!).</p>
         </div>
         <div>
           <h3 style="color:var(--taxi-yellow);margin:0 0 6px">🔧 GARAGE BREAKS</h3>
@@ -473,15 +489,7 @@ export function renderShopScreen(
     .map((o) => `${o.def.icon} ${o.def.name}${o.stacks > 1 ? ` ×${o.stacks}` : ''}${o.cleansed ? ' (Cleansed)' : ''}`)
     .join(' • ');
 
-  const specialPriceBanner = shop.specialPriceActive
-    ? `<div style="margin:10px 0 6px;padding:10px 14px;border-radius:10px;background:rgba(255,145,0,0.16);border:2px solid #ff9100;display:flex;align-items:center;gap:12px">
-        <div style="font-size:28px;line-height:1">👃</div>
-        <div>
-          <div style="font-weight:900;color:#ffb74d;font-size:14px">Znajomy właściciel z dużym nosem: „Special price for you my friend!”</div>
-          <div style="font-size:12px;color:#ffe0b2">+50% na wszystko w tym garażu</div>
-        </div>
-      </div>`
-    : '';
+  const specialPriceBanner = buildSpecialPriceBannerHtml(shop);
 
   container.innerHTML = `
     <div class="screen-panel">

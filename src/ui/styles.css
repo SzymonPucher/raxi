@@ -996,6 +996,60 @@ body {
   flex-wrap: wrap;
   gap: 10px;
 }
+.shop-special-banner {
+  margin: 10px 0 8px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(255, 145, 0, 0.22), rgba(255, 204, 0, 0.1));
+  border: 2px solid #ff9100;
+  box-shadow: 0 6px 20px rgba(255, 145, 0, 0.18);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.shop-special-portrait {
+  width: 92px;
+  height: 92px;
+  border-radius: 12px;
+  border: 2px solid var(--taxi-yellow);
+  object-fit: cover;
+  flex-shrink: 0;
+  background: #1a2230;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+}
+.shop-special-body {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.shop-special-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.shop-special-name {
+  font-weight: 900;
+  color: #ffb74d;
+  font-size: 14px;
+  letter-spacing: 0.3px;
+}
+.shop-special-badge {
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.5px;
+  padding: 2px 8px;
+  border-radius: 99px;
+  background: #ff9100;
+  color: #111;
+}
+.shop-special-quote {
+  font-size: 13px;
+  line-height: 1.45;
+  color: #fff3e0;
+  font-style: italic;
+}
 
 /* Stats / Tables */
 .stats-grid {

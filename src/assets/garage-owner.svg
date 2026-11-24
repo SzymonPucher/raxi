@@ -1,0 +1,181 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="Uśmiechnięty znajomy właściciel garażu z długim nosem">
+  <defs>
+    <!-- Warm garage background gradient -->
+    <radialGradient id="bgGlow" cx="50%" cy="35%" r="72%">
+      <stop offset="0%" stop-color="#ffab40" stop-opacity="0.45" />
+      <stop offset="48%" stop-color="#3a2819" />
+      <stop offset="100%" stop-color="#141923" />
+    </radialGradient>
+
+    <!-- Skin shading -->
+    <linearGradient id="skinGrad" x1="25%" y1="15%" x2="80%" y2="90%">
+      <stop offset="0%" stop-color="#ffd9b3" />
+      <stop offset="55%" stop-color="#f3b682" />
+      <stop offset="100%" stop-color="#d88f59" />
+    </linearGradient>
+
+    <!-- Nose shading -->
+    <linearGradient id="noseGrad" x1="0%" y1="20%" x2="100%" y2="85%">
+      <stop offset="0%" stop-color="#f7be8c" />
+      <stop offset="65%" stop-color="#ea9f6b" />
+      <stop offset="100%" stop-color="#d97d54" />
+    </linearGradient>
+
+    <!-- Mechanic jacket -->
+    <linearGradient id="jacketGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#2c3d57" />
+      <stop offset="100%" stop-color="#172233" />
+    </linearGradient>
+
+    <!-- Cap gradient -->
+    <linearGradient id="capGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#394c6b" />
+      <stop offset="100%" stop-color="#1b2638" />
+    </linearGradient>
+
+    <!-- Wrench metal -->
+    <linearGradient id="steelGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#eef4fa" />
+      <stop offset="50%" stop-color="#a8b8c9" />
+      <stop offset="100%" stop-color="#607184" />
+    </linearGradient>
+
+    <clipPath id="frameClip">
+      <rect x="0" y="0" width="256" height="256" rx="22" />
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#frameClip)">
+    <!-- Garage Backdrop -->
+    <rect width="256" height="256" fill="url(#bgGlow)" />
+
+    <!-- Subtle garage wall stripes & warm light cone -->
+    <polygon points="128,-10 38,256 218,256" fill="#ffd54f" opacity="0.08" />
+    <rect x="0" y="168" width="256" height="88" fill="#0f141d" opacity="0.48" />
+    <line x1="0" y1="168" x2="256" y2="168" stroke="#ffcc00" stroke-opacity="0.28" stroke-width="3" />
+
+    <!-- Background hanging lamp -->
+    <line x1="208" y1="0" x2="208" y2="28" stroke="#11161f" stroke-width="4" />
+    <path d="M188 42 Q208 20 228 42 Z" fill="#232c3b" stroke="#0d1118" stroke-width="3" />
+    <ellipse cx="208" cy="43" rx="13" ry="5" fill="#ffe082" />
+    <circle cx="208" cy="46" r="24" fill="#ffca28" opacity="0.18" />
+
+    <!-- Background tools silhouette on pegboard (left) -->
+    <g opacity="0.22" fill="#0b0f16">
+      <rect x="18" y="42" width="8" height="58" rx="4" />
+      <circle cx="22" cy="39" r="10" />
+      <rect x="38" y="54" width="6" height="44" rx="3" />
+      <rect x="35" y="44" width="12" height="14" rx="3" />
+    </g>
+
+    <!-- Wrench held behind right shoulder -->
+    <g transform="translate(184, 152) rotate(24)">
+      <rect x="-9" y="-56" width="18" height="106" rx="7" fill="url(#steelGrad)" stroke="#141b26" stroke-width="4.5" />
+      <path d="M-21 -58 C-23 -76 -12 -86 0 -86 C12 -86 23 -76 21 -58 L12 -52 L9 -65 L-9 -65 L-12 -52 Z"
+            fill="url(#steelGrad)" stroke="#141b26" stroke-width="4.5" stroke-linejoin="round" />
+      <line x1="-2" y1="-44" x2="-2" y2="24" stroke="#ffffff" stroke-opacity="0.55" stroke-width="3" stroke-linecap="round" />
+    </g>
+
+    <!-- Shoulders & Mechanic Coveralls -->
+    <path d="M24 256 C28 198 62 178 118 178 C174 178 214 200 224 256 Z"
+          fill="url(#jacketGrad)" stroke="#11161f" stroke-width="5.5" stroke-linejoin="round" />
+
+    <!-- Yellow T-shirt V-neck inside jacket -->
+    <polygon points="88,180 148,180 120,236" fill="#ffcc00" stroke="#11161f" stroke-width="4.5" stroke-linejoin="round" />
+    <!-- Jacket Lapels -->
+    <polygon points="86,180 116,228 96,240 68,196" fill="#3a4e6d" stroke="#11161f" stroke-width="4" stroke-linejoin="round" />
+    <polygon points="150,180 122,228 142,240 168,196" fill="#3a4e6d" stroke="#11161f" stroke-width="4" stroke-linejoin="round" />
+
+    <!-- Pocket & golden coin peek -->
+    <rect x="48" y="218" width="32" height="24" rx="5" fill="#213046" stroke="#11161f" stroke-width="3.5" />
+    <circle cx="64" cy="216" r="9" fill="#ffd54f" stroke="#11161f" stroke-width="3" />
+    <text x="64" y="220" text-anchor="middle" font-family="Arial Black, sans-serif" font-size="11" font-weight="900" fill="#8d5200">$</text>
+
+    <!-- Neck -->
+    <path d="M98 158 L98 186 C98 195 138 195 138 186 L138 158 Z"
+          fill="#dca06f" stroke="#11161f" stroke-width="5" />
+    <path d="M99 167 Q118 177 137 167 L137 158 L99 158 Z" fill="#b87645" opacity="0.45" />
+
+    <!-- Ears -->
+    <ellipse cx="66" cy="116" rx="12" ry="17" fill="url(#skinGrad)" stroke="#11161f" stroke-width="4.5" />
+    <path d="M63 109 Q59 116 64 123" fill="none" stroke="#b97748" stroke-width="3" stroke-linecap="round" />
+    <ellipse cx="168" cy="116" rx="11" ry="16" fill="#e2a06f" stroke="#11161f" stroke-width="4.5" />
+
+    <!-- Head -->
+    <path d="M68 92 C66 56 90 42 120 42 C152 42 172 60 170 96 C169 124 166 154 148 168 C134 179 104 180 88 168 C70 154 69 124 68 92 Z"
+          fill="url(#skinGrad)" stroke="#11161f" stroke-width="5.5" stroke-linejoin="round" />
+
+    <!-- Sideburns / hair tufts -->
+    <path d="M68 85 L76 86 L74 108 L67 104 Z" fill="#3a281e" stroke="#11161f" stroke-width="3" />
+    <path d="M169 85 L161 86 L163 106 L169 102 Z" fill="#3a281e" stroke="#11161f" stroke-width="3" />
+
+    <!-- Warm cheeky blush -->
+    <ellipse cx="90" cy="126" rx="11" ry="6.5" fill="#ff7043" opacity="0.28" />
+    <ellipse cx="152" cy="125" rx="9" ry="6" fill="#ff7043" opacity="0.25" />
+
+    <!-- Sly raised eyebrows -->
+    <path d="M84 86 Q98 76 112 85" fill="none" stroke="#2d1e16" stroke-width="6.5" stroke-linecap="round" />
+    <path d="M128 84 Q143 72 158 82" fill="none" stroke="#2d1e16" stroke-width="6.5" stroke-linecap="round" />
+
+    <!-- Expressive sly happy eyes -->
+    <g>
+      <!-- Left eye -->
+      <ellipse cx="99" cy="100" rx="11" ry="9.5" fill="#ffffff" stroke="#11161f" stroke-width="3.8" />
+      <circle cx="102" cy="100" r="5" fill="#1a1f28" />
+      <circle cx="104" cy="97.5" r="2" fill="#ffffff" />
+      <!-- Cheeky lower smile lid -->
+      <path d="M87 104 Q99 100 111 105" fill="#f3b682" stroke="#11161f" stroke-width="2.6" stroke-linecap="round" />
+
+      <!-- Right eye -->
+      <ellipse cx="143" cy="99" rx="10.5" ry="9.5" fill="#ffffff" stroke="#11161f" stroke-width="3.8" />
+      <circle cx="146" cy="99" r="5" fill="#1a1f28" />
+      <circle cx="148" cy="96.5" r="2" fill="#ffffff" />
+      <path d="M132 103 Q143 99 154 104" fill="#f3b682" stroke="#11161f" stroke-width="2.6" stroke-linecap="round" />
+    </g>
+
+    <!-- Big mischievous toothy grin -->
+    <path d="M86 135 Q122 146 156 133 C156 157 139 167 119 167 C99 167 85 155 86 135 Z"
+          fill="#6d1b26" stroke="#11161f" stroke-width="4.5" stroke-linejoin="round" />
+    <!-- Bright white upper teeth -->
+    <path d="M88 136 Q122 146 154 134 L151 146 Q121 154 91 147 Z"
+          fill="#ffffff" stroke="#11161f" stroke-width="3" stroke-linejoin="round" />
+    <!-- Tooth dividers -->
+    <line x1="104" y1="140" x2="104" y2="148" stroke="#b0bec5" stroke-width="2" />
+    <line x1="119" y1="142" x2="119" y2="150" stroke="#b0bec5" stroke-width="2" />
+    <line x1="135" y1="140" x2="135" y2="148" stroke="#b0bec5" stroke-width="2" />
+    <!-- Gold tooth glint! -->
+    <polygon points="136,139 149,136 147,146 136,148" fill="#ffd54f" />
+    <!-- Tongue -->
+    <path d="M104 162 Q121 154 137 161 Q121 167 104 162 Z" fill="#ef5350" />
+    <!-- Laugh lines / dimples -->
+    <path d="M81 131 Q85 136 82 142" fill="none" stroke="#b97748" stroke-width="3" stroke-linecap="round" />
+    <path d="M159 129 Q156 134 159 140" fill="none" stroke="#b97748" stroke-width="3" stroke-linecap="round" />
+
+    <!-- Signature comically LONG smiling cartoon nose! -->
+    <path d="M119 98 C144 98 186 104 228 112 C239 114 240 127 228 130 C192 135 148 132 117 127 C109 126 108 116 115 113"
+          fill="url(#noseGrad)" stroke="#11161f" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
+    <!-- Nose tip shine & nostril -->
+    <ellipse cx="222" cy="117" rx="8" ry="3.5" fill="#ffe6cc" opacity="0.72" transform="rotate(8 222 117)" />
+    <path d="M126 123 Q132 127 137 123" fill="none" stroke="#a75e34" stroke-width="3" stroke-linecap="round" />
+
+    <!-- Mechanic Baseball Cap (tilted jauntily) -->
+    <g transform="rotate(-6 120 62)">
+      <!-- Cap crown -->
+      <path d="M62 76 C62 34 90 18 124 18 C158 18 180 38 180 76 Z"
+            fill="url(#capGrad)" stroke="#11161f" stroke-width="5" stroke-linejoin="round" />
+      <!-- Taxi yellow racing stripe band -->
+      <path d="M64 68 Q122 57 178 68 L178 76 Q122 65 64 76 Z" fill="#ffcc00" stroke="#11161f" stroke-width="3" />
+      <!-- Yellow badge on cap -->
+      <circle cx="122" cy="45" r="12" fill="#ffcc00" stroke="#11161f" stroke-width="3.5" />
+      <text x="122" y="50" text-anchor="middle" font-family="Impact, Arial Black, sans-serif" font-size="14" fill="#11161f">R</text>
+      <!-- Cap brim sweeping forward -->
+      <path d="M62 74 Q126 60 202 74 C210 76 208 86 196 86 Q128 74 62 82 Z"
+            fill="#1e293b" stroke="#11161f" stroke-width="4.5" stroke-linejoin="round" />
+    </g>
+
+    <!-- Tooth sparkle star -->
+    <g transform="translate(152, 134)">
+      <path d="M0 -9 L2.2 -2.2 L9 0 L2.2 2.2 L0 9 L-2.2 2.2 L-9 0 L-2.2 -2.2 Z" fill="#fffde7" />
+    </g>
+  </g>
+</svg>

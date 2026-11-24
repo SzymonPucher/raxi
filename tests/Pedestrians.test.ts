@@ -128,6 +128,83 @@ describe('Pedestrians balance & dive-away collision', () => {
     }
     expect(collided).toBe(true);
   });
+
+  it('stops pedestrians before they walk into a car going under 5 km/h and prevents slow-car explosions', () => {
+    const map = createMapDefinition();
+    const peds = new PedestriansManager(map);
+    const rng = new Rng(12345);
+
+    // Spawn pedestrians around downtown
+    const spawnerCar = makeFakeVehicle({ x: 12, z: 50, speed: 0 });
+    for (let i = 0; i < 15; i++) {
+      peds.update(0.1, spawnerCar, [], [], rng, i * 0.1, false);
+    }
+
+    const active = peds.getActivePedestrians();
+    expect(active.length).toBeGreaterThan(0);
+    const target = active[0];
+
+    // Step once with car far away to observe target's walking direction
+    const farCar = makeFakeVehicle({ x: target.x + 40, y: target.y, z: target.z + 40, speed: 0 });
+    peds.update(0.1, farCar, [], [], rng, 2.0, false);
+    const moving = peds.getActivePedestrians().find((p) => p.id === target.id)!;
+    const speedMag = Math.hypot(moving.vx, moving.vz);
+    expect(speedMag).toBeGreaterThan(0);
+    const dirX = moving.vx / speedMag;
+    const dirZ = moving.vz / speedMag;
+
+    // Place a slow car (4 km/h < 5 km/h) directly in front of the pedestrian's path (~4m ahead)
+    const carX = moving.x + dirX * 4.0;
+    const carZ = moving.z + dirZ * 4.0;
+    const slowCar = makeFakeVehicle({
+      x: carX,
+      y: moving.y,
+      z: carZ,
+      speed: 4 / 3.6, // 4 km/h (< 5 km/h)
+    });
+
+    // Simulate 3 seconds: pedestrian must stop before reaching the car and never explode
+    let exploded = false;
+    for (let step = 0; step < 180; step++) {
+      const res = peds.update(1 / 60, slowCar, [], [], rng, 2.2 + step / 60, false);
+      if (res.explosions.length > 0) {
+        exploded = true;
+        break;
+      }
+    }
+    expect(exploded).toBe(false);
+
+    const stoppedPed = peds.getActivePedestrians().find((p) => p.id === target.id)!;
+    expect(stoppedPed).toBeDefined();
+    expect(stoppedPed.stopped).toBe(true);
+    expect(stoppedPed.vx).toBe(0);
+    expect(stoppedPed.vz).toBe(0);
+    const distAfterStop = Math.hypot(stoppedPed.x - carX, stoppedPed.z - carZ);
+    expect(distAfterStop).toBeGreaterThanOrEqual(BALANCE.pedStopRadius - 0.15);
+
+    // Even if a slow car (< 5 km/h) creeps inside 1.85m, pedestrian stops and does not explode
+    const creepingCar = makeFakeVehicle({
+      x: stoppedPed.x + 1.0,
+      y: stoppedPed.y,
+      z: stoppedPed.z,
+      speed: 4.9 / 3.6,
+    });
+    const creepRes = peds.update(1 / 60, creepingCar, [], [], rng, 5.5, false);
+    expect(creepRes.explosions).toHaveLength(0);
+    const stillThere = peds.getActivePedestrians().find((p) => p.id === target.id)!;
+    expect(stillThere).toBeDefined();
+    expect(stillThere.stopped).toBe(true);
+
+    // Once the car drives at >= 5 km/h into the pedestrian, collision triggers normally
+    const hittingCar = makeFakeVehicle({
+      x: stillThere.x + 1.0,
+      y: stillThere.y,
+      z: stillThere.z,
+      speed: 5.5 / 3.6,
+    });
+    const hitRes = peds.update(1 / 60, hittingCar, [], [], rng, 5.6, false);
+    expect(hitRes.explosions.some((e) => !e.isChain && !e.wasPassenger)).toBe(true);
+  });
 });
 
 describe('Special OneWheel bonus rider (+10s every 3 minutes)', () => {

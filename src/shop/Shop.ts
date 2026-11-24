@@ -10,6 +10,14 @@ import { ShopPowerOffer, ShopStockData, generateShopStock } from './ShopStock';
 export const SHOP_SPECIAL_PRICE_CHANCE = 1 / 3;
 export const SHOP_SPECIAL_PRICE_MULT = 1.5;
 
+export const SHOP_SPECIAL_PRICE_GREETINGS: readonly string[] = [
+  '„O, siema mordo, kopę lat! Dla ciebie, starego kumpla z akademika, mam dziś promocję VIP — wszystko droższe o 50%, bo wiesz, inflacja, a ja zbieram na kebsa z podwójnym mięsem i ratę za poprawkę. Wchodź śmiało, i tak wiem, że bez tego zderzaka nie dojedziesz nawet na pętlę!”',
+  '„No nie wierzę, żyjesz jeszcze wariacie?! Pamiętasz, jak pożyczyłeś ode mnie piątaka na browara na pierwszym roku, to dziś w ramach przyjaźni odbijam sobie z procentem plus pięćdziesiąt procent marży sentymentalnej. Siadaj, wybieraj graty, a portfel zostaw otwarty, bo przyjaciół trzeba wspierać!”',
+  '„Elo byku, dobrze widzieć starą gwardię w moim warsztacie! Specjalnie dla ciebie odpaliłem taryfę po znajomości, czyli cena z katalogu razy półtora, bo ktoś musi sfinansować mój weekendowy melanż po sesji. Nie marudź, u mnie przynajmniej wiesz, że rżnę cię na hajs z czystej sympatii!”',
+  '„Siemanko stary druhu, aż mi się łezka w oku zakręciła na widok twojego portfela! Normalnie bym cię skasował jak zwykłego klienta, ale że jesteśmy kumplami od czasów zupek chińskich na sucho, dorzucam ekskluzywne +50% za sam klimat spotkania. Bierz co chcesz, najwyżej do końca miesiąca pojedziesz na samym ryżu z ketchupem!”',
+  '„Cześć szefie, wpadaj jak do siebie, tylko najpierw wyciągnij gruby plik banknotów! Dla obcych mam zwykły cennik, ale dla starego przyjaciela przygotowałem pakiet premium: płacisz półtora raza więcej, a w gratisie dostajesz mój szczery uśmiech i uścisk dłoni. No dawaj, nie bądź żyła, i tak przepuścisz tę kasę na głupoty!”',
+];
+
 export interface PurchaseResult {
   ok: boolean;
   cost: number;
@@ -28,6 +36,7 @@ export class Shop {
   private rerollsUsedForDelivery = 0;
   private lastDeliveryCount = -1;
   public specialPriceActive = false;
+  public specialPriceGreeting: string | null = null;
 
   constructor(private readonly registry: PowerRegistry = defaultPowerRegistry) {}
 
@@ -36,6 +45,7 @@ export class Shop {
     this.rerollsUsedForDelivery = 0;
     this.lastDeliveryCount = -1;
     this.specialPriceActive = false;
+    this.specialPriceGreeting = null;
   }
 
   /**
@@ -44,7 +54,14 @@ export class Shop {
    */
   rollSpecialPrice(rng: Rng): boolean {
     this.specialPriceActive = rng.chance(SHOP_SPECIAL_PRICE_CHANCE);
+    this.specialPriceGreeting = this.specialPriceActive
+      ? rng.pick(SHOP_SPECIAL_PRICE_GREETINGS)
+      : null;
     return this.specialPriceActive;
+  }
+
+  getSpecialPriceGreeting(): string {
+    return this.specialPriceGreeting ?? SHOP_SPECIAL_PRICE_GREETINGS[0];
   }
 
   get priceMult(): number {

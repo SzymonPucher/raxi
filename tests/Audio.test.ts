@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { AudioManager } from '../src/audio/AudioManager';
+import { describe, expect, it, vi } from 'vitest';
+import { AudioManager, PIG_GRUNT_URL } from '../src/audio/AudioManager';
 import { EngineSound } from '../src/audio/EngineSound';
 
 interface ParamCall {
@@ -343,49 +343,54 @@ describe('AudioManager playGrunt & 8-bit chiptune breakbeat music', () => {
     ).not.toThrow();
   });
 
-  it('synthesizes comical double-snort pig grunt with nasal bandpass filters and noise bursts', () => {
+  it('loads and plays audio/pig.m4a through sfxGain when playGrunt is called', async () => {
+    expect(PIG_GRUNT_URL).toContain('pig.m4a');
+
     const fake = createFakeAudioContext();
     const audio = new AudioManager();
     const sfxGain = fake.ctx.createGain() as unknown as FakeGainNode;
+    const decodedBuf = fake.ctx.createBuffer(1, 22050, 44100);
+    const decodeAudioData = vi.fn(async () => decodedBuf);
+    (fake.rawCtx as unknown as { decodeAudioData: typeof decodeAudioData }).decodeAudioData =
+      decodeAudioData;
 
     const priv = audio as any;
     priv.ctx = fake.ctx;
     priv.sfxGain = sfxGain;
 
-    audio.playGrunt();
+    const origFetch = globalThis.fetch;
+    const mockFetch = vi.fn(async () => ({
+      ok: true,
+      arrayBuffer: async () => new ArrayBuffer(16),
+    }));
+    (globalThis as unknown as { fetch: typeof mockFetch }).fetch = mockFetch;
 
-    // Expect 4 oscillators (pulse 1 sawtooth+triangle, pulse 2 sawtooth+triangle)
-    expect(fake.oscillators.length).toBe(4);
-    const sawOscs = fake.oscillators.filter((o) => o.type === 'sawtooth');
-    const triOscs = fake.oscillators.filter((o) => o.type === 'triangle');
-    expect(sawOscs.length).toBe(2);
-    expect(triOscs.length).toBe(2);
+    try {
+      // First play triggers lazy fetch + decode of pig.m4a and plays it
+      audio.playGrunt();
+      await vi.waitFor(() => {
+        expect(fake.bufferSources.length).toBe(1);
+      });
 
-    // All grunt oscillators stay in guttural low frequency range (~70-165 Hz) and start/stop cleanly
-    for (const osc of fake.oscillators) {
-      const startFreq = osc.frequency.calls[0]?.value ?? osc.frequency.value;
-      expect(startFreq).toBeGreaterThanOrEqual(70);
-      expect(startFreq).toBeLessThanOrEqual(165);
-      expect(osc.startedAt).not.toBeNull();
-      expect(osc.stoppedAt).not.toBeNull();
-      expect(osc.stoppedAt!).toBeGreaterThan(osc.startedAt!);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(mockFetch).toHaveBeenCalledWith(PIG_GRUNT_URL);
+      expect(decodeAudioData).toHaveBeenCalledTimes(1);
+      expect(fake.bufferSources[0].buffer).toBe(decodedBuf);
+      expect(fake.bufferSources[0].connectedTo).toContain(sfxGain);
+      expect(fake.bufferSources[0].startedAt).not.toBeNull();
+      expect(fake.oscillators.length).toBe(0);
+
+      // Second play reuses cached buffer without refetching and stops previous source
+      audio.playGrunt();
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(fake.bufferSources.length).toBe(2);
+      expect(fake.bufferSources[0].stoppedAt).not.toBeNull();
+      expect(fake.bufferSources[1].buffer).toBe(decodedBuf);
+      expect(fake.bufferSources[1].connectedTo).toContain(sfxGain);
+      expect(fake.bufferSources[1].startedAt).not.toBeNull();
+    } finally {
+      (globalThis as unknown as { fetch: typeof origFetch }).fetch = origFetch;
     }
-
-    // Second snort pulse starts strictly after the first pulse
-    const startTimes = sawOscs.map((o) => o.startedAt!).sort((a, b) => a - b);
-    expect(startTimes[1]).toBeGreaterThan(startTimes[0] + 0.08);
-
-    // Nasal bandpass formant filters + filtered noise bursts created and routed to sfxGain
-    const bandpassFilters = fake.filters.filter((f) => f.type === 'bandpass');
-    expect(bandpassFilters.length).toBeGreaterThanOrEqual(4);
-    expect(fake.bufferSources.length).toBeGreaterThanOrEqual(2);
-
-    const routedToSfx = fake.gains.filter((g) => g.connectedTo.includes(sfxGain));
-    expect(routedToSfx.length).toBeGreaterThanOrEqual(4);
-    const maxPeakGain = Math.max(
-      ...routedToSfx.flatMap((g) => g.gain.calls.map((c) => c.value))
-    );
-    expect(maxPeakGain).toBeGreaterThanOrEqual(1.0);
   });
 
   it('steps the 8-bit Prodigy Omen-style breakbeat sequencer at 140/152 BPM across all 128 steps', () => {

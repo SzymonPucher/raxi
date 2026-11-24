@@ -2,8 +2,11 @@ import { EngineSound } from './EngineSound';
 import accident1Url from '../../audio/accident_1.mp3';
 import accident2Url from '../../audio/accident_2.mp3';
 import clientExitUrl from '../../audio/client_exit.mp3';
+import pigUrl from '../../audio/pig.m4a';
 
 type SpecialClipKey = 'accident1' | 'accident2' | 'clientExit';
+
+export const PIG_GRUNT_URL = pigUrl;
 
 const SPECIAL_CLIP_URLS: Record<SpecialClipKey, string> = {
   accident1: accident1Url,
@@ -45,6 +48,11 @@ export class AudioManager {
   private specialAccidentCooldown = 0;
   private specialRequestSeq = 0;
 
+  private gruntBuffer: AudioBuffer | null = null;
+  private gruntLoadPromise: Promise<void> | null = null;
+  private gruntSource: AudioBufferSourceNode | null = null;
+  private gruntRequestSeq = 0;
+
   unlock(): void {
     if (typeof window === 'undefined') return;
     if (!this.ctx) {
@@ -70,6 +78,7 @@ export class AudioManager {
     if (this.ctx.state === 'suspended') {
       this.ctx.resume().catch(() => {});
     }
+    void this.preloadGruntSound();
     if (this.specialSoundsEnabled) {
       void this.preloadSpecialSounds();
     }
@@ -597,8 +606,36 @@ export class AudioManager {
     src.stop(now + duration + 0.01);
   }
 
+  private preloadGruntSound(): Promise<void> {
+    if (!this.ctx || typeof fetch === 'undefined') {
+      return Promise.resolve();
+    }
+    if (this.gruntBuffer) {
+      return Promise.resolve();
+    }
+    if (this.gruntLoadPromise) {
+      return this.gruntLoadPromise;
+    }
+    const ctx = this.ctx;
+    this.gruntLoadPromise = (async () => {
+      try {
+        const res = await fetch(PIG_GRUNT_URL);
+        if (!res.ok) return;
+        const arr = await res.arrayBuffer();
+        this.gruntBuffer = await ctx.decodeAudioData(arr);
+      } catch {
+        // Ignore asset fetch/decode errors
+      } finally {
+        if (!this.gruntBuffer) {
+          this.gruntLoadPromise = null;
+        }
+      }
+    })();
+    return this.gruntLoadPromise;
+  }
+
   /**
-   * Very loud, punchy comical pig grunt / snort ("chrumknięcie") played when nitro ends.
+   * Plays the pig grunt ("chrumknięcie") clip (`audio/pig.m4a`) when nitro ends.
    * Safe no-op when audio context or SFX bus is unavailable.
    */
   playGrunt(): void {
@@ -606,112 +643,38 @@ export class AudioManager {
     if (this.ctx.state === 'suspended') {
       this.ctx.resume?.().catch(() => {});
     }
-    const now = this.ctx.currentTime;
+    const reqSeq = ++this.gruntRequestSeq;
+    const startBuffer = (buffer: AudioBuffer) => {
+      if (!this.ctx || !this.sfxGain || reqSeq !== this.gruntRequestSeq) return;
+      if (this.gruntSource) {
+        try {
+          this.gruntSource.stop();
+        } catch {
+          // Ignore if already stopped
+        }
+        this.gruntSource = null;
+      }
+      const src = this.ctx.createBufferSource();
+      src.buffer = buffer;
+      src.connect(this.sfxGain);
+      src.onended = () => {
+        if (this.gruntSource === src) {
+          this.gruntSource = null;
+        }
+      };
+      this.gruntSource = src;
+      src.start();
+    };
 
-    // Pulse 1: loud guttural pig grunt ("CHRUM-") with direct low body + wide nasal formants
-    const osc1 = this.ctx.createOscillator();
-    const sub1 = this.ctx.createOscillator();
-    const nasal1 = this.ctx.createBiquadFilter();
-    const formant1 = this.ctx.createBiquadFilter();
-    const gain1 = this.ctx.createGain();
-    const formantGain1 = this.ctx.createGain();
-    const bodyGain1 = this.ctx.createGain();
-
-    osc1.type = 'sawtooth';
-    osc1.frequency.setValueAtTime(145, now);
-    osc1.frequency.exponentialRampToValueAtTime(160, now + 0.03);
-    osc1.frequency.exponentialRampToValueAtTime(88, now + 0.165);
-
-    sub1.type = 'triangle';
-    sub1.frequency.setValueAtTime(98, now);
-    sub1.frequency.exponentialRampToValueAtTime(72, now + 0.165);
-
-    nasal1.type = 'bandpass';
-    nasal1.frequency.setValueAtTime(420, now);
-    nasal1.frequency.exponentialRampToValueAtTime(260, now + 0.165);
-    nasal1.Q.value = 1.5;
-
-    formant1.type = 'bandpass';
-    formant1.frequency.setValueAtTime(960, now);
-    formant1.frequency.exponentialRampToValueAtTime(640, now + 0.165);
-    formant1.Q.value = 1.8;
-
-    gain1.gain.setValueAtTime(0.001, now);
-    gain1.gain.linearRampToValueAtTime(1.35, now + 0.014);
-    gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.175);
-
-    formantGain1.gain.setValueAtTime(0.001, now);
-    formantGain1.gain.linearRampToValueAtTime(0.95, now + 0.016);
-    formantGain1.gain.exponentialRampToValueAtTime(0.001, now + 0.165);
-
-    bodyGain1.gain.setValueAtTime(0.001, now);
-    bodyGain1.gain.linearRampToValueAtTime(1.05, now + 0.012);
-    bodyGain1.gain.exponentialRampToValueAtTime(0.001, now + 0.17);
-
-    osc1.connect(nasal1);
-    sub1.connect(nasal1);
-    nasal1.connect(gain1);
-    gain1.connect(this.sfxGain);
-
-    osc1.connect(formant1);
-    formant1.connect(formantGain1);
-    formantGain1.connect(this.sfxGain);
-
-    osc1.connect(bodyGain1);
-    sub1.connect(bodyGain1);
-    bodyGain1.connect(this.sfxGain);
-
-    osc1.start(now);
-    sub1.start(now);
-    osc1.stop(now + 0.185);
-    sub1.stop(now + 0.185);
-
-    // Pulse 2: loud second snort accent ("-CHRUM!")
-    const t2 = now + 0.175;
-    const osc2 = this.ctx.createOscillator();
-    const sub2 = this.ctx.createOscillator();
-    const nasal2 = this.ctx.createBiquadFilter();
-    const gain2 = this.ctx.createGain();
-    const bodyGain2 = this.ctx.createGain();
-
-    osc2.type = 'sawtooth';
-    osc2.frequency.setValueAtTime(158, t2);
-    osc2.frequency.exponentialRampToValueAtTime(94, t2 + 0.13);
-
-    sub2.type = 'triangle';
-    sub2.frequency.setValueAtTime(108, t2);
-    sub2.frequency.exponentialRampToValueAtTime(75, t2 + 0.13);
-
-    nasal2.type = 'bandpass';
-    nasal2.frequency.setValueAtTime(480, t2);
-    nasal2.frequency.exponentialRampToValueAtTime(290, t2 + 0.13);
-    nasal2.Q.value = 1.6;
-
-    gain2.gain.setValueAtTime(0.001, t2);
-    gain2.gain.linearRampToValueAtTime(1.15, t2 + 0.012);
-    gain2.gain.exponentialRampToValueAtTime(0.001, t2 + 0.135);
-
-    bodyGain2.gain.setValueAtTime(0.001, t2);
-    bodyGain2.gain.linearRampToValueAtTime(0.9, t2 + 0.012);
-    bodyGain2.gain.exponentialRampToValueAtTime(0.001, t2 + 0.135);
-
-    osc2.connect(nasal2);
-    sub2.connect(nasal2);
-    nasal2.connect(gain2);
-    gain2.connect(this.sfxGain);
-
-    osc2.connect(bodyGain2);
-    sub2.connect(bodyGain2);
-    bodyGain2.connect(this.sfxGain);
-
-    osc2.start(t2);
-    sub2.start(t2);
-    osc2.stop(t2 + 0.145);
-    sub2.stop(t2 + 0.145);
-
-    // Loud nasal snort noise bursts
-    this.playNoiseBurst(0.14, 720, 0.65, this.sfxGain, 'bandpass', 0.008, 1.3);
-    this.playNoiseBurst(0.1, 860, 0.55, this.sfxGain, 'bandpass', 0.178, 1.4);
+    if (this.gruntBuffer) {
+      startBuffer(this.gruntBuffer);
+      return;
+    }
+    void this.preloadGruntSound().then(() => {
+      if (this.gruntBuffer) {
+        startBuffer(this.gruntBuffer);
+      }
+    });
   }
 
   playClick(): void {

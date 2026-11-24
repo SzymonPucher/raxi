@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { BALANCE } from '../src/core/config/balance';
 import { BreakMode } from '../src/gameplay/BreakMode';
 import { CarCondition } from '../src/gameplay/CarCondition';
 import { RulesTracker } from '../src/gameplay/RulesTracker';
@@ -95,6 +96,39 @@ describe('ShiftTimer, Wallet, CarCondition, BreakMode & RulesTracker', () => {
     cond.repair(25);
     expect(cond.condition).toBe(25);
     expect(cond.performanceMult).toBeCloseTo(0.775, 5);
+  });
+
+  it('collision damage is 4x lower and pedestrian damage is capped at 3% of car durability', () => {
+    expect(BALANCE.damageTrafficMin).toBeCloseTo(0.5, 5);
+    expect(BALANCE.damageTrafficMax).toBeCloseTo(3.75, 5);
+    expect(BALANCE.damageWallMin).toBeCloseTo(0.5, 5);
+    expect(BALANCE.damageWallMax).toBeCloseTo(3.75, 5);
+    expect(BALANCE.damageHardLanding).toBeCloseTo(0.75, 5);
+    expect(BALANCE.damageFlipReset).toBeCloseTo(2.5, 5);
+    expect(BALANCE.damagePedExplosion).toBeLessThanOrEqual(BALANCE.carConditionMax * 0.03);
+    expect(BALANCE.damagePedExplosion).toBe(3);
+
+    const safety = new SafetyTracker();
+    const minTraffic = safety.recordTrafficHit(600, 0, false);
+    expect(minTraffic?.carDamage).toBeCloseTo(0.5, 5);
+
+    safety.tick(0.5);
+    const maxTraffic = safety.recordTrafficHit(20000, 0, false);
+    expect(maxTraffic?.carDamage).toBeCloseTo(3.75, 5);
+
+    safety.tick(0.5);
+    const minWall = safety.recordWallHit(800, 0);
+    expect(minWall?.carDamage).toBeCloseTo(0.5, 5);
+
+    safety.tick(0.5);
+    const maxWall = safety.recordWallHit(25000, 0);
+    expect(maxWall?.carDamage).toBeCloseTo(3.75, 5);
+
+    // Even with a +50% damage curse (1.5x), pedestrian hit is capped at 3% durability
+    const cond = new CarCondition();
+    const dealt = cond.applyDamage(BALANCE.damagePedExplosion, 1.5, BALANCE.damagePedExplosion);
+    expect(dealt).toBe(3);
+    expect(cond.condition).toBe(97);
   });
 
   it('BreakMode forbids starting with passenger on board, during draft, or <= 5s left', () => {
